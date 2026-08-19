@@ -1,0 +1,711 @@
+# API — dofus-brisage-s
+
+Documentation des endpoints exposés par le backend, à destination du front.
+
+## Base URL
+
+```
+http://localhost:3000
+```
+
+Le port vient de la variable d'env `PORT` (défaut `3000`).
+
+## CORS
+
+Seule l'origine définie par `CORS_ORIGIN` (défaut `http://localhost:3001`) est autorisée à appeler l'API depuis un navigateur.
+
+## Format de réponse
+
+Toutes les réponses sont en JSON.
+
+- Succès : `{ "success": true, ... }`
+- Erreur : `{ "success": false, "error": "message" }`
+
+Codes HTTP utilisés : `200` (succès), `400` (entrée invalide), `404` (ressource introuvable), `429` (rate limit dépassé), `500` (erreur serveur).
+
+---
+
+## Health
+
+### `GET /health`
+
+Vérifie que le serveur répond.
+
+**Réponse `200`**
+
+```json
+{ "status": "ok" }
+```
+
+---
+
+## Runes
+
+Une **rune** représente une caractéristique extractible d'un équipement (Force, Vitalité, etc.), avec un prix par serveur.
+
+Les runes et leurs prix sont importés automatiquement depuis l'API Dofocus **toutes les heures** (cron interne). Un prix saisi manuellement par un utilisateur (voir `PUT /runes/:id/price`) reste prioritaire sur cet import pendant **3 jours** — passé ce délai, le cron peut de nouveau écraser la valeur avec celle de Dofocus si elle diffère.
+
+### `GET /runes`
+
+Liste toutes les runes avec leurs prix sur tous les serveurs.
+
+**Query params**
+| Param | Type | Requis | Description |
+|---|---|---|---|
+| `serverName` | string | non | Si fourni, ne garde que le prix de ce serveur pour chaque rune (`prices` devient un tableau à 0 ou 1 élément), et exclut les runes sans prix sur ce serveur. |
+
+**Réponse `200`**
+
+```json
+{
+  "success": true,
+  "count": 53,
+  "data": [
+    {
+      "id": 1524,
+      "name": "Rune Age",
+      "characteristicId": 14,
+      "characteristic": "Agilité",
+      "imageUrl": "https://api.dofusdb.fr/img/items/78046.png",
+      "value": 1,
+      "weight": 1,
+      "prices": [
+        { "serverName": "Brial", "price": 90, "dateUpdated": "2026-08-17T20:12:53.362Z" },
+        { "serverName": "Rafal", "price": 79, "dateUpdated": "2026-08-16T10:53:46.882Z" }
+        ...
+      ]
+    }
+  ]
+}
+```
+
+**Erreurs** : `400` si `serverName` est fourni mais n'est pas une chaîne.
+
+---
+
+### `PUT /runes/:id/price`
+
+Saisie manuelle du prix d'une rune sur un serveur donné (pas de compte utilisateur requis).
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `id` | number | id de la rune (`Rune.id`) |
+
+**Body**
+
+```json
+{
+  "serverName": "Rafal",
+  "price": 85
+}
+```
+
+- `serverName` : string non vide, requis.
+- `price` : entier positif (`> 0`), requis.
+
+**Réponse `200`**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 412,
+    "runeId": 1524,
+    "serverName": "Rafal",
+    "price": 85,
+    "dateUpdated": "2026-08-18T14:02:11.000Z",
+    "source": "USER"
+  }
+}
+```
+
+**Erreurs**
+
+- `400` : `serverName` manquant/vide, ou `price` invalide (non entier, ≤ 0).
+- `404` : la rune `id` n'existe pas.
+
+---
+
+### `GET /runes/import`
+
+Déclenche manuellement un import complet des runes + prix depuis Dofocus (le même job que le cron horaire). Utile pour forcer un rafraîchissement immédiat.
+
+**Rate limit** : 5 requêtes / 15 minutes (partagé avec `POST /items/import`, protège contre le ban de l'API externe).
+
+**Réponse `200`**
+
+```json
+{
+  "success": true,
+  "imported": { "runes": 53, "prices": 689 }
+}
+```
+
+**Erreurs**
+
+- `429` : rate limit dépassé.
+- `500` : échec de l'import (API Dofocus down, etc.) — `error` contient le message.
+
+---
+
+## Items
+
+Un **item** est un équipement (catalogue DofusDB), avec ses `effects` (liste des plages de caractéristiques données par l'objet).
+
+### `GET /items?q=`
+
+Recherche d'items par nom (pour une barre de recherche côté front — sélectionner un item pour ensuite ouvrir sa page coefficient via `GET /coefficients/:itemId/:serverName`).
+
+Si `serverName` est fourni, chaque résultat inclut son `coefficient` pour ce serveur — lu directement en base (le coefficient est balayé en intégralité toutes les heures, voir la section Coefficients), donc **aucun appel externe** n'est fait à la recherche : une seule requête locale, rapide. Sans `serverName`, `coefficient` vaut toujours `null`.
+
+**Query params**
+| Param | Type | Requis | Description |
+|---|---|---|---|
+| `q` | string | oui | terme recherché, sous-chaîne insensible à la casse sur `name` |
+| `serverName` | string | non | si fourni, inclut le coefficient de ce serveur pour chaque résultat |
+| `limit` | number (entier, 1 à 50) | non (défaut `20`) | nombre max de résultats |
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "count": 3,
+  "data": [
+    {
+      "id": 789,
+      "name": "Ceinture du Kobeer",
+      "level": 1,
+      "img": "https://api.dofusdb.fr/img/items/10009.png",
+      "typeId": 10,
+      "coefficient": 100
+    }
+  ]
+}
+```
+
+**Erreurs** : `400` si `q` est manquant/vide, si `limit` est invalide (non entier, hors 1-50), ou si `serverName` est fourni mais n'est pas une chaîne.
+
+---
+
+### `GET /items/:id`
+
+Récupère un item par son id.
+
+**Réponse `200`**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 968,
+    "iconId": 10010,
+    "typeId": 10,
+    "level": 50,
+    "name": "Ceinture Fulgurante",
+    "description": "Cette magnifique ceinture augmente...",
+    "slug": "ceinture-fulgurante",
+    "img": "https://api.dofusdb.fr/img/items/10010.png",
+    "effects": [
+      {
+        "from": 1,
+        "to": 30,
+        "characteristic": 11,
+        "category": 0,
+        "elementId": -1,
+        "effectId": 125
+      },
+      {
+        "from": 1,
+        "to": 3,
+        "characteristic": 16,
+        "category": 0,
+        "elementId": 5,
+        "effectId": 112
+      }
+    ]
+  }
+}
+```
+
+`effects[].characteristic` et `effects[].elementId` sont des ids internes DofusDB (pas encore résolus en libellés côté backend).
+
+**Erreurs**
+
+- `400` : `id` n'est pas un nombre.
+- `404` : item introuvable.
+
+---
+
+### `POST /items/import`
+
+Synchronise le catalogue d'items complet depuis DofusDB (upsert — ne duplique pas, met à jour les items existants). Opération lourde (peut prendre plusieurs minutes selon le nombre d'items).
+
+**Rate limit** : 5 requêtes / 15 minutes (partagé avec `GET /runes/import`).
+
+**Réponse `200`**
+
+```json
+{ "success": true, "message": "Items import completed" }
+```
+
+**Erreurs**
+
+- `429` : rate limit dépassé.
+- `500` : échec de la synchronisation.
+
+---
+
+## Coefficients
+
+Le **coefficient** d'un item représente son rendement en runes quand on le casse (dismantle), et est associé à un **prix de craft** — les deux sont saisis librement par la communauté, par item et par serveur (comme sur Dofocus), sans compte utilisateur requis.
+
+Les deux valeurs vivent dans **une seule table** côté backend (`ItemMarketData`, une ligne par item+serveur) — c'est la source de vérité que le front consomme, `Item` (nom/niveau/image/effects) restant à part puisque cette donnée ne dépend pas du serveur. Coefficient et prix de craft gardent chacun leur propre suivi de fraîcheur/source sur cette même ligne (`coefficientSource`/`coefficientUpdatedAt` vs `craftPriceSource`/`craftPriceUpdatedAt`), car ils n'ont pas la même origine chez Dofocus et peuvent exister l'un sans l'autre :
+
+- **Coefficient** : `https://dofocus.fr/api/coefficients/by-server/:serverName` renvoie en un seul appel le coefficient de **tout le catalogue** pour un serveur donné. Une douzaine de serveurs = une douzaine d'appels pour couvrir l'intégralité des items. Du coup, **cron toutes les heures, balayage complet** de tous les serveurs connus (déduits des `serverName` déjà présents dans `RunePrice`) — exactement la même logique que les runes. Jamais de fetch à la demande pour ce champ.
+- **Prix de craft** : pas d'équivalent bulk chez Dofocus pour ce champ, uniquement accessible via `/items/:id?lang=fr` (un item à la fois, mais qui renvoie quand même tous les serveurs de cet item en un coup). Reste donc en fetch à la demande au premier `GET` sur une paire (item, serveur) sans prix de craft connu, puis rafraîchi toutes les heures **uniquement pour les items qui en ont déjà un** — un balayage du catalogue entier coûterait un appel par item, ce qui n'a pas de sens pour un site tiers.
+
+Dans les deux cas : une saisie utilisateur (`source: USER`) reste prioritaire sur le rafraîchissement automatique pendant **3 jours** (même logique que les runes). Une saisie manuelle (`PUT`, voir plus bas) écrit toujours les deux champs sur la même ligne en une seule requête.
+
+Le calcul de rentabilité (coefficient × prix des runes − prix de craft) est fait **côté front** ; le backend fournit seulement les données brutes.
+
+### `GET /coefficients/import`
+
+Déclenche manuellement le balayage complet des coefficients (le même job que le cron horaire) : un appel Dofocus par serveur connu, upsert de tout le catalogue. Les items renvoyés par Dofocus mais absents de notre catalogue (`Item`) sont ignorés proprement plutôt que de faire échouer l'import (voir `skipped` dans la réponse) — pense à lancer `POST /items/import` si ce nombre est élevé.
+
+Opération lente (une douzaine d'appels séquentiels vers Dofocus, peut prendre 30s-1min).
+
+**Rate limit** : 5 requêtes / 15 minutes (même limiteur que `GET /runes/import` et `POST /items/import`).
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "imported": { "servers": 13, "coefficients": 37011, "skipped": 5031 }
+}
+```
+
+**Erreurs**
+- `429` : rate limit dépassé.
+- `500` : échec de l'import — `error` contient le message.
+
+---
+
+### `GET /coefficients/craft-prices/refresh`
+
+Déclenche manuellement le rafraîchissement des prix de craft (le même job que le cron horaire) : un appel Dofocus par item déjà connu (ceux qui ont déjà un `craftPrice` en base), pas le catalogue entier. Si aucun item n'a encore été consulté, `refreshed` et `failed` valent `0` — c'est normal, rien à rafraîchir.
+
+**Rate limit** : 5 requêtes / 15 minutes (même limiteur que les autres imports).
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "refreshed": { "refreshed": 12, "failed": 0 }
+}
+```
+
+**Erreurs**
+- `429` : rate limit dépassé.
+- `500` : échec du refresh — `error` contient le message.
+
+---
+
+### `GET /coefficients/:itemId/:serverName`
+
+Récupère les données nécessaires à l'affichage de la page coefficient pour un item sur un serveur donné : infos item + coefficient + prix de craft, en un seul appel.
+
+- Le coefficient vient uniquement de ce qui est déjà en base (rempli par le cron horaire) — pas de fetch à la demande pour ce champ.
+- Le prix de craft est fetché à la demande chez Dofocus si absent en base, puis stocké.
+
+Si rien n'est disponible pour l'un ou l'autre, sa valeur est `null` — c'est à l'utilisateur d'être le premier à la renseigner via `PUT`.
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `itemId` | number | id de l'item (`Item.id`) |
+| `serverName` | string | nom du serveur |
+
+**Réponse `200`**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 8876,
+    "name": "Voile d'encre",
+    "level": 191,
+    "img": "https://api.dofusdb.fr/img/items/17147.png",
+    "effects": [
+      { "from": 251, "to": 350, "characteristic": 11, "category": 0, "elementId": -1, "effectId": 100 }
+    ],
+    "serverName": "Rafal",
+    "coefficient": 4000,
+    "coefficientUpdatedAt": "2026-08-18T15:00:00.000Z",
+    "craftPrice": 14000000,
+    "craftPriceUpdatedAt": "2026-08-18T15:12:00.000Z"
+  }
+}
+```
+
+**Erreurs**
+- `400` : `itemId` n'est pas un nombre, ou `serverName` manquant/vide.
+- `404` : l'item `itemId` n'existe pas dans notre catalogue (voir `POST /items/import`).
+- `500` : échec de la récupération du prix de craft (Dofocus down au moment du premier fetch, etc.).
+
+---
+
+### `PUT /coefficients/:itemId/:serverName`
+
+Saisie manuelle du coefficient et du prix de craft d'un item sur un serveur (pas de compte utilisateur requis, les deux valeurs dans le même appel). Remplace toute valeur existante, qu'elle vienne de Dofocus ou d'un utilisateur précédent.
+
+**Params** : identiques à `GET /coefficients/:itemId/:serverName`.
+
+**Body**
+```json
+{
+  "coefficient": 4200,
+  "craftPrice": 13500000
+}
+```
+- `coefficient` : nombre ≥ 0, requis.
+- `craftPrice` : entier ≥ 0, requis.
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 17,
+    "itemId": 8876,
+    "serverName": "Rafal",
+    "coefficient": 4200,
+    "coefficientSource": "USER",
+    "coefficientUpdatedAt": "2026-08-18T15:20:00.000Z",
+    "craftPrice": 13500000,
+    "craftPriceSource": "USER",
+    "craftPriceUpdatedAt": "2026-08-18T15:20:00.000Z"
+  }
+}
+```
+
+**Erreurs**
+- `400` : `itemId`/`serverName` invalides, ou `coefficient`/`craftPrice` invalides.
+- `404` : l'item `itemId` n'existe pas.
+
+---
+
+### `GET /coefficients/interesting/:serverName`
+
+Liste les items "intéressants à casser" (dismantle) sur un serveur, en croisant les coefficients Dofocus (données live, non stockées chez nous) avec le catalogue d'items en base. Pensé pour la découverte/le tri (parcourir large), pas pour l'édition — endpoint indépendant de `GET/PUT /coefficients/:itemId/:serverName` ci-dessus.
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `serverName` | string | nom du serveur |
+
+**Query params**
+| Param | Type | Défaut | Description |
+|---|---|---|---|
+| `minCoefficient` | number | — | coefficient minimum |
+| `minLevel` | number | — | niveau d'item minimum |
+| `maxLevel` | number | — | niveau d'item maximum |
+| `typeId` | number ou liste séparée par virgules | — | filtre par type(s) d'équipement |
+| `maxAgeDays` | number | `7` | ne garde que les coefficients vieux d'au moins X jours (doit être `> 0`) |
+| `page` | number (entier ≥ 1) | `1` | pagination |
+| `limit` | number (entier, 1 à 100) | `30` | taille de page |
+
+**Réponse `200`**
+
+```json
+{
+  "success": true,
+  "count": 30,
+  "data": [
+    {
+      "coefficient": {
+        "coefficient": 850,
+        "dateUpdated": "2026-08-01T00:00:00.000Z",
+        "itemId": 8876
+      },
+      "item": {
+        "id": 8876,
+        "name": "Voile d'encre",
+        "level": 191,
+        "img": "...",
+        "typeId": 17
+      }
+    }
+  ],
+  "pagination": { "page": 1, "limit": 30, "total": 214, "totalPages": 8 }
+}
+```
+
+**Erreurs** : `400` sur tout paramètre invalide (`serverName` manquant, ou l'un des params numériques hors bornes/non numérique).
+
+---
+
+## Favoris
+
+Un **favori** est un item marqué comme intéressant par un utilisateur connecté, pour un serveur donné (le coefficient/prix de craft dépendant du serveur). Contrairement au reste de l'API, ces endpoints nécessitent une authentification : le front doit envoyer le token de session Clerk dans le header `Authorization: Bearer <token>`. Aucun profil utilisateur n'est stocké en base côté backend — Clerk reste la seule source de vérité pour l'identité, le backend ne retient que l'id opaque (`clerkUserId`) fourni par le token.
+
+**Erreur commune aux trois endpoints** : `401` si le header `Authorization` est absent ou le token invalide/expiré — `{ "success": false, "error": "Authentication required" }`.
+
+### `GET /favorites`
+
+Liste les favoris de l'utilisateur connecté, avec l'item et son coefficient/prix de craft sur le serveur du favori.
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "count": 1,
+  "data": [
+    {
+      "item": {
+        "id": 8876,
+        "iconId": 17147,
+        "typeId": 17,
+        "level": 191,
+        "name": "Voile d'encre",
+        "description": "...",
+        "slug": "voile-d-encre",
+        "img": "https://api.dofusdb.fr/img/items/17147.png",
+        "effects": [ "..." ]
+      },
+      "serverName": "Rafal",
+      "createdAt": "2026-08-18T15:20:00.000Z",
+      "coefficient": 4200,
+      "craftPrice": 13500000
+    }
+  ]
+}
+```
+
+### `POST /favorites`
+
+Ajoute un item aux favoris de l'utilisateur connecté (idempotent : ajouter un favori déjà existant ne crée pas de doublon).
+
+**Body**
+```json
+{
+  "itemId": 8876,
+  "serverName": "Rafal"
+}
+```
+- `itemId` : entier, requis.
+- `serverName` : string non vide, requis.
+
+**Réponse `201`**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 5,
+    "clerkUserId": "user_2abc...",
+    "itemId": 8876,
+    "serverName": "Rafal",
+    "createdAt": "2026-08-18T15:20:00.000Z"
+  }
+}
+```
+
+**Erreurs**
+- `400` : `itemId` invalide, ou `serverName` manquant/vide.
+- `404` : l'item `itemId` n'existe pas dans le catalogue.
+
+### `DELETE /favorites/:itemId?serverName=`
+
+Retire un item des favoris de l'utilisateur connecté.
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `itemId` | number | id de l'item (`Item.id`) |
+
+**Query params**
+| Param | Type | Requis | Description |
+|---|---|---|---|
+| `serverName` | string | oui | serveur du favori à retirer |
+
+**Réponse `200`**
+```json
+{ "success": true }
+```
+
+**Erreurs**
+- `400` : `itemId` invalide, ou `serverName` manquant/vide.
+- `404` : aucun favori correspondant pour cet utilisateur.
+
+---
+
+## Achats/Reventes
+
+Un **trade** est une entrée du journal personnel achat/craft → revente d'un utilisateur connecté, pour un item et un serveur donnés. Contrairement aux favoris (une seule entrée par item/serveur), un même item/serveur peut avoir **plusieurs trades successifs** : chaque trade représente une opération distincte (une session de craft/revente), que l'utilisateur remplit progressivement (`craftPrice`, puis `sellPrice`, puis `sold`) jusqu'à la clôturer. Comme pour `/favorites`, ces endpoints nécessitent le header `Authorization: Bearer <token>` (Clerk) et ne stockent que l'id opaque `clerkUserId`.
+
+**Erreur commune aux quatre endpoints** : `401` si le header `Authorization` est absent ou le token invalide/expiré — `{ "success": false, "error": "Authentication required" }`.
+
+### `GET /trades`
+
+Liste tous les trades de l'utilisateur connecté (tous serveurs et tous items confondus), du plus récent au plus ancien.
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "count": 1,
+  "data": [
+    {
+      "id": 12,
+      "clerkUserId": "user_2abc...",
+      "itemId": 8876,
+      "serverName": "Rafal",
+      "craftPrice": 13500000,
+      "sellPrice": 15000000,
+      "sold": true,
+      "createdAt": "2026-08-18T15:20:00.000Z",
+      "updatedAt": "2026-08-19T09:05:00.000Z"
+    }
+  ]
+}
+```
+
+### `POST /trades`
+
+Crée un nouveau trade pour l'utilisateur connecté. `craftPrice`/`sellPrice` sont optionnels à la création — l'utilisateur peut les renseigner ensuite via `PATCH`.
+
+**Body**
+```json
+{
+  "itemId": 8876,
+  "serverName": "Rafal",
+  "craftPrice": 13500000,
+  "sellPrice": 15000000
+}
+```
+- `itemId` : entier, requis.
+- `serverName` : string non vide, requis.
+- `craftPrice` / `sellPrice` : entier ≥ 0, optionnels.
+
+**Réponse `201`**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 12,
+    "clerkUserId": "user_2abc...",
+    "itemId": 8876,
+    "serverName": "Rafal",
+    "craftPrice": 13500000,
+    "sellPrice": 15000000,
+    "sold": false,
+    "createdAt": "2026-08-18T15:20:00.000Z",
+    "updatedAt": "2026-08-18T15:20:00.000Z"
+  }
+}
+```
+
+**Erreurs**
+- `400` : `itemId` invalide, `serverName` manquant/vide, ou `craftPrice`/`sellPrice` invalide (non entier ou négatif).
+- `404` : l'item `itemId` n'existe pas dans le catalogue.
+
+### `PATCH /trades/:id`
+
+Met à jour un trade existant appartenant à l'utilisateur connecté — seuls les champs présents dans le body sont modifiés. Sert à renseigner `craftPrice`, `sellPrice`, et basculer `sold` indépendamment, au fil de l'avancement de l'opération.
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `id` | number | id du trade (`Trade.id`) |
+
+**Body** (tous les champs optionnels, au moins un requis)
+```json
+{
+  "craftPrice": 13500000,
+  "sellPrice": 15000000,
+  "sold": true
+}
+```
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 12,
+    "clerkUserId": "user_2abc...",
+    "itemId": 8876,
+    "serverName": "Rafal",
+    "craftPrice": 13500000,
+    "sellPrice": 15000000,
+    "sold": true,
+    "createdAt": "2026-08-18T15:20:00.000Z",
+    "updatedAt": "2026-08-19T09:05:00.000Z"
+  }
+}
+```
+
+**Erreurs**
+- `400` : `id` invalide, `craftPrice`/`sellPrice`/`sold` invalide, ou aucun champ fourni.
+- `404` : aucun trade correspondant pour cet utilisateur (déjà supprimé, jamais créé, ou appartient à un autre utilisateur).
+
+### `DELETE /trades/:id`
+
+Supprime un trade appartenant à l'utilisateur connecté.
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `id` | number | id du trade (`Trade.id`) |
+
+**Réponse `200`**
+```json
+{ "success": true }
+```
+
+**Erreurs**
+- `400` : `id` invalide.
+- `404` : aucun trade correspondant pour cet utilisateur.
+
+---
+
+## Admin
+
+### `GET /admin/seed`
+
+Reconstruit la base de données depuis zéro (ex : changement de région/instance de la DB, perte de données). Enchaîne, dans le bon ordre de dépendance :
+
+1. Import des runes + synchronisation complète du catalogue d'items (en parallèle, indépendants l'un de l'autre).
+2. Import des coefficients (a besoin des runes pour connaître la liste des serveurs, et des items pour la contrainte de clé étrangère — d'où l'ordre).
+3. Rafraîchissement des prix de craft déjà connus (no-op sur une base vide, inclus pour rester cohérent avec l'ensemble des jobs automatiques).
+
+**Prérequis : le schéma doit déjà exister sur la base cible** (`npx prisma db push`) — cet endpoint ne crée pas les tables, seulement la donnée. Sur une base sans aucune table, il échoue avec une erreur explicite (`relation "Item" does not exist` ou similaire).
+
+**Opération lente** : la synchronisation du catalogue d'items (~21 700 items chez DofusDB) domine largement le temps total — plusieurs minutes. Utiliser un client avec un timeout généreux.
+
+**Rate limit** : 5 requêtes / 15 minutes (même limiteur que les autres imports).
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "result": {
+    "runes": { "runes": 53, "prices": 689 },
+    "items": { "items": 21748 },
+    "coefficients": { "servers": 13, "coefficients": 37011, "skipped": 0 },
+    "craftPrices": { "refreshed": 0, "failed": 0 }
+  }
+}
+```
+
+**Erreurs**
+- `429` : rate limit dépassé.
+- `500` : échec d'une étape — `error` contient le message (souvent : schéma pas encore poussé sur la nouvelle base).
+
+---
+
+## Notes pour le front
+
+- Aucune authentification n'existe sur cette API en dehors de `/favorites` et `/trades` — tout autre endpoint d'écriture (`PUT /runes/:id/price`, `PUT /coefficients/:itemId/:serverName`) est ouvert, à traiter comme une donnée communautaire non modérée pour l'instant.
+- Les endpoints `*/import` sont rate-limités et coûteux (appels à des API externes) : ne pas les déclencher depuis une interaction utilisateur classique, ils sont prévus pour un usage admin/cron.
+- La liste des noms de serveur (`serverName`) n'est validée nulle part côté backend — le front doit envoyer une valeur cohérente avec celles utilisées par Dofocus (ex: `Rafal`, `Brial`, `Dakal`, `Draconiros`, `HellMina`, `Imagiro`, `Kourial`, `Mikhal`, `Ombre`, `Orukam`, `Salar`, `TalKasha`, `Tylezia`).

@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PriceSource {
+  DOFOCUS
+  USER
+}
+
+model Rune {
+  id                Int         @id
+  externalId        String      @unique
+  name              String
+  characteristicId  Int?
+  characteristic    String
+  imageUrl           String
+  value              Int
+  weight             Float
+  prices             RunePrice[]
+}
+
+model RunePrice {
+  id          Int         @id @default(autoincrement())
+  runeId      Int
+  serverName  String
+  price       Int
+  dateUpdated DateTime
+  source      PriceSource @default(DOFOCUS)
+
+  rune        Rune @relation(fields: [runeId], references: [id])
+
+  @@unique([runeId, serverName])
+}
+
+model Item {
+  id          Int    @id
+  iconId      Int
+  typeId      Int?
+  level       Int
+  name        String
+  description String
+  slug        String
+  img         String
+  effects     Json   @default("[]")
+
+  marketData  ItemMarketData[]
+  favorites   FavoriteItem[]
+  trades      Trade[]
+
+  @@index([level])
+  @@index([typeId])
+  @@index([level, typeId])
+}
+
+/**
+ * Table mère pour tout ce qui est spécifique à un item sur un serveur donné :
+ * coefficient de rendement en runes + prix de craft. Une ligne par (item, serveur),
+ * consommée telle quelle par le front (plus besoin de croiser plusieurs tables).
+ *
+ * coefficient et craftPrice sont peuplés par deux processus indépendants
+ * (balayage bulk horaire pour l'un, fetch à la demande pour l'autre) : chacun
+ * garde donc son propre suivi de fraîcheur/source, et les deux sont nullable
+ * puisqu'ils peuvent exister l'un sans l'autre sur une même ligne.
+ */
+model ItemMarketData {
+  id                   Int          @id @default(autoincrement())
+  itemId               Int
+  serverName           String
+
+  coefficient          Float?
+  coefficientSource    PriceSource?
+  coefficientUpdatedAt DateTime?
+
+  craftPrice           Int?
+  craftPriceSource     PriceSource?
+  craftPriceUpdatedAt  DateTime?
+
+  item                 Item         @relation(fields: [itemId], references: [id])
+
+  @@unique([itemId, serverName])
+}
+
+/**
+ * Item marqué comme intéressant par un utilisateur authentifié (Clerk), pour
+ * un serveur donné (coefficient/prix étant eux-mêmes par serveur). clerkUserId
+ * est l'identifiant opaque fourni par Clerk (claim `sub` du token) : aucune
+ * table locale de profils utilisateur n'est maintenue, Clerk reste la seule
+ * source de vérité pour l'identité.
+ */
+model FavoriteItem {
+  id          Int      @id @default(autoincrement())
+  clerkUserId String
+  itemId      Int
+  serverName  String
+  createdAt   DateTime @default(now())
+
+  item        Item     @relation(fields: [itemId], references: [id])
+
+  @@unique([clerkUserId, itemId, serverName])
+}
+
+/**
+ * Entrée d'un journal achat/craft → revente, personnelle à un utilisateur
+ * Clerk (page profil). Contrairement à ItemMarketData (une ligne par item/
+ * serveur, données de marché), une même paire item/serveur peut avoir
+ * plusieurs Trade successifs : chaque ligne est une opération distincte que
+ * l'utilisateur remplit progressivement (craftPrice, puis sellPrice, puis
+ * sold) jusqu'à la clôturer.
+ */
+model Trade {
+  id          Int      @id @default(autoincrement())
+  clerkUserId String
+  itemId      Int
+  serverName  String
+
+  craftPrice  Int?
+  sellPrice   Int?
+  sold        Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  item        Item     @relation(fields: [itemId], references: [id])
+
+  @@index([clerkUserId])
+}
