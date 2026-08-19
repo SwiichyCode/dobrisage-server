@@ -14,6 +14,7 @@ import { startRuneImportScheduler } from "./modules/runes/rune.scheduler.js";
 import {
   startCoefficientImportScheduler,
   startCraftPriceRefreshScheduler,
+  startPriceHistoryRefreshScheduler,
 } from "./modules/coefficients/coefficient.scheduler.js";
 
 const REQUIRED_ENV_VARS = [
@@ -80,6 +81,7 @@ const server = app.listen(PORT, () => {
 const runeImportInterval = startRuneImportScheduler();
 const coefficientImportInterval = startCoefficientImportScheduler();
 const craftPriceRefreshInterval = startCraftPriceRefreshScheduler();
+const priceHistoryRefreshInterval = startPriceHistoryRefreshScheduler();
 
 async function shutdown(signal: string) {
   console.log(`${signal} received, shutting down...`);
@@ -87,6 +89,7 @@ async function shutdown(signal: string) {
   clearInterval(runeImportInterval);
   clearInterval(coefficientImportInterval);
   clearInterval(craftPriceRefreshInterval);
+  clearInterval(priceHistoryRefreshInterval);
 
   server.close(() => {
     console.log("HTTP server closed");

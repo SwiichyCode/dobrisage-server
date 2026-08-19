@@ -1,7 +1,12 @@
 import { Request, Response } from "express";
 import { getAuth } from "@clerk/express";
 import { Prisma } from "../../generated/prisma/client.js";
-import { addFavorite, listFavorites, removeFavorite } from "./favorite.service.js";
+import {
+  addFavorite,
+  listFavorites,
+  removeFavorite,
+  updateFavorite,
+} from "./favorite.service.js";
 
 export async function listFavoritesController(req: Request, res: Response) {
   const { userId } = getAuth(req);
@@ -67,6 +72,80 @@ export async function addFavoriteController(req: Request, res: Response) {
     return res.status(500).json({
       success: false,
       error: "Failed to add favorite",
+    });
+  }
+}
+
+export async function updateFavoriteController(req: Request, res: Response) {
+  const { userId } = getAuth(req);
+  const itemId = Number(req.params.itemId);
+  const { serverName, personalCoefficient, personalCraftPrice } = req.body;
+
+  if (!Number.isInteger(itemId)) {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid itemId",
+    });
+  }
+
+  if (typeof serverName !== "string" || serverName.trim().length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: "Missing or invalid serverName",
+    });
+  }
+
+  const data: { personalCoefficient?: number | null; personalCraftPrice?: number | null } = {};
+
+  if (personalCoefficient !== undefined) {
+    if (personalCoefficient !== null && typeof personalCoefficient !== "number") {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid personalCoefficient",
+      });
+    }
+
+    data.personalCoefficient = personalCoefficient;
+  }
+
+  if (personalCraftPrice !== undefined) {
+    if (personalCraftPrice !== null && !Number.isInteger(personalCraftPrice)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid personalCraftPrice",
+      });
+    }
+
+    data.personalCraftPrice = personalCraftPrice;
+  }
+
+  if (Object.keys(data).length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: "No fields to update",
+    });
+  }
+
+  try {
+    const favorite = await updateFavorite(userId!, itemId, serverName, data);
+
+    if (!favorite) {
+      return res.status(404).json({
+        success: false,
+        error: "Favorite not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: favorite,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to update favorite",
     });
   }
 }

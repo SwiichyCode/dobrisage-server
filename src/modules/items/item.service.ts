@@ -1,5 +1,10 @@
 import prisma from "../../db/prisma.js";
 import { getItemsPage } from "./item.api.js";
+import {
+  computeMaxFocusProfit,
+  getRunePricesBySlug,
+  type ProfitEffectInput,
+} from "../coefficients/profitability.js";
 
 export async function importItems() {
   const limit = 100;
@@ -145,6 +150,16 @@ export async function getItemById(id: number) {
   });
 }
 
+function latestUpdatedAt(...dates: (Date | null | undefined)[]): Date | null {
+  const known = dates.filter((date): date is Date => date != null);
+
+  if (known.length === 0) {
+    return null;
+  }
+
+  return new Date(Math.max(...known.map((date) => date.getTime())));
+}
+
 export async function searchItems(
   query: string,
   limit: number = 20,
@@ -163,6 +178,7 @@ export async function searchItems(
       level: true,
       img: true,
       typeId: true,
+      effects: true,
       marketData: {
         // Un serverName vide ne correspond jamais à un vrai serveur :
         // évite un `if` séparé quand serverName n'est pas fourni.
@@ -171,6 +187,9 @@ export async function searchItems(
         },
         select: {
           coefficient: true,
+          coefficientUpdatedAt: true,
+          craftPrice: true,
+          craftPriceUpdatedAt: true,
         },
         take: 1,
       },
@@ -181,8 +200,39 @@ export async function searchItems(
     take: limit,
   });
 
-  return items.map(({ marketData, ...item }) => ({
-    ...item,
-    coefficient: marketData[0]?.coefficient ?? null,
-  }));
+  /*
+   * Chargée une seule fois par recherche (pas par item) pour éviter le N+1
+   * sur la table runes — cache 5 min, voir profitability.ts.
+   */
+  const runePricesBySlug = serverName
+    ? await getRunePricesBySlug(serverName)
+    : null;
+
+  return items.map(({ marketData, effects, ...item }) => {
+    const market = marketData[0];
+
+    const coefficient = market?.coefficient ?? null;
+    const craftPrice = market?.craftPrice ?? null;
+
+    const profitability = runePricesBySlug
+      ? computeMaxFocusProfit(
+          effects as ProfitEffectInput[],
+          item.level,
+          coefficient,
+          craftPrice,
+          runePricesBySlug,
+        )
+      : { profitability: null, revenue: null };
+
+    return {
+      ...item,
+      coefficient,
+      updatedAt: latestUpdatedAt(
+        market?.coefficientUpdatedAt,
+        market?.craftPriceUpdatedAt,
+      ),
+      profitability: profitability.profitability,
+      revenue: profitability.revenue,
+    };
+  });
 }

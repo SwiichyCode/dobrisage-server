@@ -1,5 +1,9 @@
 import { dofocusApiClient } from "../../http/dofocus-client.js";
-import type { Coefficient, DofocusItemDetail } from "./coefficient.types.js";
+import type {
+  Coefficient,
+  DofocusItemDetail,
+  DofocusPriceHistoryEntry,
+} from "./coefficient.types.js";
 
 export async function getItemDetailFromDofocus(
   itemId: number,
@@ -9,6 +13,25 @@ export async function getItemDetailFromDofocus(
     {
       params: {
         lang: "fr",
+      },
+      headers: {
+        Referer: `https://dofocus.fr/items/${itemId}`,
+      },
+    },
+  );
+
+  return response.data;
+}
+
+export async function getItemPriceHistoryFromDofocus(
+  itemId: number,
+  serverName: string,
+): Promise<DofocusPriceHistoryEntry[]> {
+  const response = await dofocusApiClient.get<DofocusPriceHistoryEntry[]>(
+    `/items/${itemId}/prices/history`,
+    {
+      params: {
+        serverName,
       },
       headers: {
         Referer: `https://dofocus.fr/items/${itemId}`,

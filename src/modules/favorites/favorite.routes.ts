@@ -4,6 +4,7 @@ import {
   addFavoriteController,
   listFavoritesController,
   removeFavoriteController,
+  updateFavoriteController,
 } from "./favorite.controller.js";
 
 const router = Router();
@@ -12,6 +13,7 @@ router.use(requireAuth);
 
 router.get("/", listFavoritesController);
 router.post("/", addFavoriteController);
+router.patch("/:itemId", updateFavoriteController);
 router.delete("/:itemId", removeFavoriteController);
 
 export default router;

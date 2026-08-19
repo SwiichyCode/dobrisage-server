@@ -1,16 +1,25 @@
 # Favoris — directives techniques (front)
 
-Scope : ajout/suppression/listing des items favoris d'un utilisateur connecté (page profil). Seule feature de l'app qui nécessite une authentification — voir `docs/API.md` (section Favoris) pour le contrat complet, ce fichier ne couvre que ce qui est nécessaire pour l'intégrer.
+Scope : ajout/mise à jour/suppression/listing des items favoris d'un utilisateur connecté (page profil). Seule feature de l'app qui nécessite une authentification — voir `docs/API.md` (section Favoris) pour le contrat complet, ce fichier ne couvre que ce qui est nécessaire pour l'intégrer.
 
 ## Prérequis : authentification Clerk
 
-Ces trois endpoints nécessitent que l'utilisateur soit connecté (Clerk côté Next.js). À chaque appel, envoyer le token de session courant :
+Ces quatre endpoints nécessitent que l'utilisateur soit connecté (Clerk côté Next.js). À chaque appel, envoyer le token de session courant :
 
 ```
 Authorization: Bearer <token>
 ```
 
 Avec le SDK Clerk côté Next.js, ce token s'obtient via `getToken()` (hook `useAuth()` côté client, ou `auth()` côté server component/route handler). Ne pas construire la logique d'affichage (bouton favori, page profil) tant que l'utilisateur n'est pas connecté — inutile d'appeler ces routes sans session, elles répondront `401` systématiquement.
+
+## Données communautaires vs. données personnelles
+
+Chaque favori porte deux jeux de valeurs, à ne pas confondre côté UI :
+
+- `coefficient` / `craftPrice` : donnée **communautaire**, partagée entre tous les utilisateurs pour ce couple item/serveur (celle affichée sur la page coefficient classique).
+- `personalCoefficient` / `personalCraftPrice` : donnée **privée** à l'utilisateur connecté, propre à ce favori (ex: son propre prix de craft négocié). `null` tant qu'il ne l'a pas renseignée via `PATCH`.
+
+Le backend ne fait **aucun fallback automatique** entre les deux — il renvoie toujours les deux, chacun pouvant être `null` indépendamment. Recommandation d'affichage côté front : afficher la valeur personnelle en priorité si elle n'est pas `null`, sinon retomber sur la valeur communautaire (avec un indicateur visuel — icône ou libellé — pour distinguer "ma valeur" de "valeur communauté").
 
 ## 1. Ajouter un favori
 
@@ -41,12 +50,62 @@ Idempotent : ajouter un favori déjà existant ne crée pas de doublon, renvoie 
     "clerkUserId": "user_2abc...",
     "itemId": 8876,
     "serverName": "Rafal",
-    "createdAt": "2026-08-18T15:20:00.000Z"
+    "createdAt": "2026-08-18T15:20:00.000Z",
+    "updatedAt": "2026-08-18T15:20:00.000Z",
+    "personalCoefficient": null,
+    "personalCoefficientUpdatedAt": null,
+    "personalCraftPrice": null
   }
 }
 ```
 
-## 2. Retirer un favori
+Pas de valeurs personnelles à la création — utiliser `PATCH /favorites/:itemId` juste après pour les renseigner (ex: un formulaire "mes valeurs" affiché immédiatement après l'ajout aux favoris).
+
+## 2. Renseigner mes valeurs personnelles sur un favori
+
+```
+PATCH /favorites/:itemId
+```
+
+**Body**
+```json
+{
+  "serverName": "Rafal",
+  "personalCoefficient": 4300,
+  "personalCraftPrice": 12800000
+}
+```
+
+- `serverName` : requis, identifie le favori avec `itemId` (même logique que les deux autres endpoints).
+- `personalCoefficient` / `personalCraftPrice` : au moins un des deux requis, l'autre est laissé inchangé si omis. Envoyer `null` explicitement pour effacer une valeur déjà renseignée (repasser en "pas de donnée perso").
+
+### Réponse `200`
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 5,
+    "clerkUserId": "user_2abc...",
+    "itemId": 8876,
+    "serverName": "Rafal",
+    "createdAt": "2026-08-18T15:20:00.000Z",
+    "updatedAt": "2026-08-19T09:05:00.000Z",
+    "personalCoefficient": 4300,
+    "personalCoefficientUpdatedAt": "2026-08-19T09:05:00.000Z",
+    "personalCraftPrice": 12800000
+  }
+}
+```
+
+### Erreurs spécifiques
+
+| Code | Cas |
+|---|---|
+| `400` | `personalCoefficient`/`personalCraftPrice` d'un type invalide, ou aucun des deux fourni |
+| `404` | pas de favori pour cet item/serveur — il faut d'abord l'ajouter via `POST /favorites` |
+
+## 3. Retirer un favori
 
 ```
 DELETE /favorites/:itemId?serverName=<serveur>
@@ -60,7 +119,7 @@ DELETE /favorites/:itemId?serverName=<serveur>
 { "success": true }
 ```
 
-## 3. Lister les favoris (page profil)
+## 4. Lister les favoris (page profil)
 
 ```
 GET /favorites
@@ -89,26 +148,34 @@ Pas de query params — renvoie tous les favoris de l'utilisateur connecté (dé
       },
       "serverName": "Rafal",
       "createdAt": "2026-08-18T15:20:00.000Z",
+      "updatedAt": "2026-08-18T15:20:00.000Z",
       "coefficient": 4200,
-      "craftPrice": 13500000
+      "craftPrice": 13500000,
+      "personalCoefficient": null,
+      "personalCoefficientUpdatedAt": null,
+      "personalCraftPrice": 12800000
     }
   ]
 }
 ```
 
-`coefficient`/`craftPrice` sont directement inclus (lus depuis `ItemMarketData` pour le serveur du favori) — pas besoin d'un second appel à `GET /coefficients/:itemId/:serverName` par favori pour afficher la liste. Comme partout ailleurs, les deux peuvent être `null` si aucune donnée n'existe encore pour cette paire item/serveur — traiter comme "pas encore de donnée".
+`coefficient`/`craftPrice` (communautaires) et `personalCoefficient`/`personalCraftPrice` (perso) sont directement inclus — pas besoin d'un second appel à `GET /coefficients/:itemId/:serverName` par favori pour afficher la liste. Les quatre champs peuvent être `null` indépendamment si aucune donnée n'existe encore — traiter comme "pas encore de donnée". Voir la section "Données communautaires vs. données personnelles" plus haut pour la logique d'affichage recommandée.
+
+`createdAt` (date d'ajout aux favoris) et `updatedAt` (dernière modification de n'importe quel champ du favori) sont tous les deux renvoyés, y compris par `GET /favorites` — pas seulement au moment d'un `PATCH`. Recommandation d'affichage : `createdAt` pour "Favori depuis...", et `updatedAt` uniquement s'il diffère de `createdAt` (ex: "Modifié le...").
+
+`personalCoefficientUpdatedAt` est propre au favori, pas une donnée communautaire : il trace uniquement la dernière fois que **`personalCoefficient`** a été renseigné/modifié par l'utilisateur via `PATCH` (indépendant des changements sur `personalCraftPrice`, qui ne le touchent pas). `null` tant que `personalCoefficient` n'a jamais été renseigné, ou remis à `null` si l'utilisateur l'efface (`personalCoefficient: null` en `PATCH`).
 
 Un clic sur une ligne de la liste peut réutiliser `item.id` + `serverName` pour rouvrir la page coefficient de l'item (`GET /coefficients/:itemId/:serverName`, voir `docs/FRONT_COEFFICIENT_PAGE.md`).
 
-## Erreurs communes aux trois endpoints
+## Erreurs communes aux quatre endpoints
 
 | Code | Cas |
 |---|---|
 | `401` | Token absent ou invalide/expiré — `{ "success": false, "error": "Authentication required" }`. À gérer en redirigeant vers la connexion Clerk, pas en affichant une erreur générique. |
-| `400` | `itemId` invalide, ou `serverName` manquant/vide (POST et DELETE uniquement) |
-| `404` | `POST` : l'item `itemId` n'existe pas dans le catalogue. `DELETE` : aucun favori correspondant pour cet utilisateur (déjà retiré, ou jamais ajouté). |
+| `400` | `itemId` invalide, ou `serverName` manquant/vide (POST, PATCH et DELETE) ; sur PATCH, aussi si `personalCoefficient`/`personalCraftPrice` sont d'un type invalide ou si aucun des deux n'est fourni |
+| `404` | `POST` : l'item `itemId` n'existe pas dans le catalogue. `PATCH`/`DELETE` : aucun favori correspondant pour cet utilisateur (pas encore ajouté, ou déjà retiré). |
 
-Pas de rate limiting sur ces trois endpoints.
+Pas de rate limiting sur ces quatre endpoints.
 
 ## Référence complète
 

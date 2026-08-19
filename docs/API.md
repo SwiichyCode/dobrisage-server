@@ -157,13 +157,17 @@ Un **item** est un équipement (catalogue DofusDB), avec ses `effects` (liste de
 
 Recherche d'items par nom (pour une barre de recherche côté front — sélectionner un item pour ensuite ouvrir sa page coefficient via `GET /coefficients/:itemId/:serverName`).
 
-Si `serverName` est fourni, chaque résultat inclut son `coefficient` pour ce serveur — lu directement en base (le coefficient est balayé en intégralité toutes les heures, voir la section Coefficients), donc **aucun appel externe** n'est fait à la recherche : une seule requête locale, rapide. Sans `serverName`, `coefficient` vaut toujours `null`.
+Si `serverName` est fourni, chaque résultat inclut en plus, pour ce serveur : `coefficient`, `updatedAt` et `profitability`/`revenue` — tous lus/calculés depuis ce qui est déjà en base (aucun appel externe à la recherche, calcul en O(nb_effets) par item). Sans `serverName`, ces quatre champs valent toujours `null`.
+
+- `updatedAt` : date la plus récente entre `coefficientUpdatedAt` et `craftPriceUpdatedAt` pour cet item+serveur (`ItemMarketData`). `null` si aucun des deux n'est renseigné.
+- `profitability` : rentabilité si on casse l'item en ciblant, au brisage, la **meilleure stat en focus** (une seule rune, quantité max) — `(runes de cette stat × son prix) − craftPrice`. Port exact du calcul déjà fait côté front (`computeMaxFocusProfit`). `null` si `coefficient` est `null`, si aucun effet de l'item n'a de rune/prix connu sur ce serveur, ou si `craftPrice` est `null` (dans ce dernier cas, voir `revenue`).
+- `revenue` : valeur brute en runes-or de la meilleure focus, **avant** déduction du `craftPrice` — permet au front d'afficher un chiffre même quand `craftPrice` n'est pas encore renseigné (`profitability` vaut alors `null` mais `revenue` non). `null` dans les mêmes cas que `profitability` sauf le cas "craftPrice manquant".
 
 **Query params**
 | Param | Type | Requis | Description |
 |---|---|---|---|
 | `q` | string | oui | terme recherché, sous-chaîne insensible à la casse sur `name` |
-| `serverName` | string | non | si fourni, inclut le coefficient de ce serveur pour chaque résultat |
+| `serverName` | string | non | si fourni, inclut coefficient/updatedAt/profitability/revenue de ce serveur pour chaque résultat |
 | `limit` | number (entier, 1 à 50) | non (défaut `20`) | nombre max de résultats |
 
 **Réponse `200`**
@@ -178,7 +182,10 @@ Si `serverName` est fourni, chaque résultat inclut son `coefficient` pour ce se
       "level": 1,
       "img": "https://api.dofusdb.fr/img/items/10009.png",
       "typeId": 10,
-      "coefficient": 100
+      "coefficient": 100,
+      "updatedAt": "2026-08-18T15:12:00.000Z",
+      "profitability": 850000,
+      "revenue": 1200000
     }
   ]
 }
@@ -308,6 +315,62 @@ Déclenche manuellement le rafraîchissement des prix de craft (le même job que
 **Erreurs**
 - `429` : rate limit dépassé.
 - `500` : échec du refresh — `error` contient le message.
+
+---
+
+### `GET /coefficients/price-history/refresh`
+
+Déclenche manuellement le rafraîchissement de l'historique des prix (le même job que le cron horaire) : un appel Dofocus par couple (item, serveur) déjà connu (ceux qui ont déjà au moins un point d'historique en base), pas le catalogue entier. Si aucune paire n'a encore été consultée, `refreshed` et `failed` valent `0`.
+
+**Rate limit** : 5 requêtes / 15 minutes (même limiteur que les autres imports).
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "refreshed": { "refreshed": 8, "failed": 0 }
+}
+```
+
+**Erreurs**
+- `429` : rate limit dépassé.
+- `500` : échec du refresh — `error` contient le message.
+
+---
+
+### `GET /coefficients/:itemId/:serverName/price-history`
+
+Récupère l'historique des prix d'un item sur un serveur donné (miroir en lecture seule de `https://dofocus.fr/api/items/:id/prices/history?serverName=X`, un point = un relevé de prix communautaire à sa date d'origine). Contrairement au prix de craft (`ItemMarketData.craftPrice`, une seule valeur éditable), il n'y a pas de saisie manuelle possible sur cet historique.
+
+- Si rien n'est encore en base pour cette paire (item, serveur), fetch à la demande chez Dofocus puis stockage — même logique que le prix de craft.
+- Les points déjà stockés ne sont jamais réécrits (un point d'historique Dofocus est immuable), le cron horaire ne fait qu'ajouter les nouveaux points apparus depuis.
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `itemId` | number | id de l'item (`Item.id`) |
+| `serverName` | string | nom du serveur |
+
+**Réponse `200`**
+
+```json
+{
+  "success": true,
+  "count": 3,
+  "data": [
+    { "id": 1, "itemId": 8876, "serverName": "Rafal", "price": 12000000, "dateUpdated": "2026-08-01T18:15:23.347Z" },
+    { "id": 2, "itemId": 8876, "serverName": "Rafal", "price": 13500000, "dateUpdated": "2026-08-10T09:39:46.619Z" },
+    { "id": 3, "itemId": 8876, "serverName": "Rafal", "price": 14000000, "dateUpdated": "2026-08-18T15:12:00.000Z" }
+  ]
+}
+```
+
+Un item sans historique connu renvoie `data: []` (pas une erreur) si Dofocus n'a rien à offrir pour ce couple.
+
+**Erreurs**
+- `400` : `itemId` n'est pas un nombre, ou `serverName` manquant/vide.
+- `404` : l'item `itemId` n'existe pas dans notre catalogue.
+- `500` : échec de la récupération auprès de Dofocus.
 
 ---
 
@@ -449,11 +512,17 @@ Liste les items "intéressants à casser" (dismantle) sur un serveur, en croisan
 
 Un **favori** est un item marqué comme intéressant par un utilisateur connecté, pour un serveur donné (le coefficient/prix de craft dépendant du serveur). Contrairement au reste de l'API, ces endpoints nécessitent une authentification : le front doit envoyer le token de session Clerk dans le header `Authorization: Bearer <token>`. Aucun profil utilisateur n'est stocké en base côté backend — Clerk reste la seule source de vérité pour l'identité, le backend ne retient que l'id opaque (`clerkUserId`) fourni par le token.
 
-**Erreur commune aux trois endpoints** : `401` si le header `Authorization` est absent ou le token invalide/expiré — `{ "success": false, "error": "Authentication required" }`.
+Un favori porte deux jeux de valeurs distincts, à ne pas confondre :
+- `coefficient` / `craftPrice` : donnée **communautaire**, partagée entre tous les utilisateurs pour ce couple item/serveur (lue depuis `ItemMarketData`, alimentée par l'import Dofocus + les soumissions communautaires).
+- `personalCoefficient` / `personalCraftPrice` : donnée **privée** à l'utilisateur connecté, propre à ce favori (ex: son propre prix de craft négocié). `null` tant qu'il ne l'a pas renseignée.
+
+Le backend ne fait **aucun fallback automatique** entre les deux — il renvoie toujours les deux jeux de valeurs, chacun pouvant être `null` indépendamment. C'est au front de décider quoi afficher en priorité (ex: afficher `personalCraftPrice` s'il n'est pas `null`, sinon `craftPrice`).
+
+**Erreur commune aux quatre endpoints** : `401` si le header `Authorization` est absent ou le token invalide/expiré — `{ "success": false, "error": "Authentication required" }`.
 
 ### `GET /favorites`
 
-Liste les favoris de l'utilisateur connecté, avec l'item et son coefficient/prix de craft sur le serveur du favori.
+Liste les favoris de l'utilisateur connecté, avec l'item, son coefficient/prix de craft communautaires, et ses valeurs personnelles sur le serveur du favori.
 
 **Réponse `200`**
 ```json
@@ -475,16 +544,24 @@ Liste les favoris de l'utilisateur connecté, avec l'item et son coefficient/pri
       },
       "serverName": "Rafal",
       "createdAt": "2026-08-18T15:20:00.000Z",
+      "updatedAt": "2026-08-18T15:20:00.000Z",
       "coefficient": 4200,
-      "craftPrice": 13500000
+      "craftPrice": 13500000,
+      "personalCoefficient": null,
+      "personalCoefficientUpdatedAt": null,
+      "personalCraftPrice": 12800000
     }
   ]
 }
 ```
 
+`createdAt` (date d'ajout aux favoris) et `updatedAt` (dernière modification de n'importe quel champ du favori) sont tous les deux renvoyés par `GET /favorites`, pas seulement par `POST`/`PATCH`.
+
+`personalCoefficientUpdatedAt` est propre au favori (pas une donnée communautaire) : il trace la dernière fois que `personalCoefficient` a été renseigné/modifié par l'utilisateur via `PATCH`, indépendamment des autres champs. `null` tant que `personalCoefficient` n'a jamais été renseigné, remis à `null` si l'utilisateur efface sa valeur personnelle (`personalCoefficient: null` en `PATCH`).
+
 ### `POST /favorites`
 
-Ajoute un item aux favoris de l'utilisateur connecté (idempotent : ajouter un favori déjà existant ne crée pas de doublon).
+Ajoute un item aux favoris de l'utilisateur connecté (idempotent : ajouter un favori déjà existant ne crée pas de doublon). Ne prend pas de valeurs personnelles à la création — utiliser `PATCH /favorites/:itemId` ensuite pour les renseigner.
 
 **Body**
 ```json
@@ -505,7 +582,11 @@ Ajoute un item aux favoris de l'utilisateur connecté (idempotent : ajouter un f
     "clerkUserId": "user_2abc...",
     "itemId": 8876,
     "serverName": "Rafal",
-    "createdAt": "2026-08-18T15:20:00.000Z"
+    "createdAt": "2026-08-18T15:20:00.000Z",
+    "updatedAt": "2026-08-18T15:20:00.000Z",
+    "personalCoefficient": null,
+    "personalCoefficientUpdatedAt": null,
+    "personalCraftPrice": null
   }
 }
 ```
@@ -513,6 +594,49 @@ Ajoute un item aux favoris de l'utilisateur connecté (idempotent : ajouter un f
 **Erreurs**
 - `400` : `itemId` invalide, ou `serverName` manquant/vide.
 - `404` : l'item `itemId` n'existe pas dans le catalogue.
+
+### `PATCH /favorites/:itemId`
+
+Renseigne ou met à jour le coefficient et/ou le prix de craft **personnels** d'un favori existant. Au moins un des deux champs doit être fourni ; l'autre reste inchangé s'il est omis. Envoyer `null` explicitement efface une valeur déjà renseignée.
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `itemId` | number | id de l'item (`Item.id`) |
+
+**Body**
+```json
+{
+  "serverName": "Rafal",
+  "personalCoefficient": 4300,
+  "personalCraftPrice": 12800000
+}
+```
+- `serverName` : string non vide, requis (identifie le favori avec `itemId`).
+- `personalCoefficient` : number ou `null`, optionnel.
+- `personalCraftPrice` : entier ou `null`, optionnel.
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 5,
+    "clerkUserId": "user_2abc...",
+    "itemId": 8876,
+    "serverName": "Rafal",
+    "createdAt": "2026-08-18T15:20:00.000Z",
+    "updatedAt": "2026-08-19T09:05:00.000Z",
+    "personalCoefficient": 4300,
+    "personalCoefficientUpdatedAt": "2026-08-19T09:05:00.000Z",
+    "personalCraftPrice": 12800000
+  }
+}
+```
+
+**Erreurs**
+- `400` : `itemId` invalide, `serverName` manquant/vide, `personalCoefficient`/`personalCraftPrice` d'un type invalide, ou aucun des deux champs fourni.
+- `404` : aucun favori correspondant pour cet utilisateur (item pas encore ajouté aux favoris sur ce serveur).
 
 ### `DELETE /favorites/:itemId?serverName=`
 

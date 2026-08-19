@@ -1,4 +1,8 @@
-import { getCoefficientsByServer, getItemDetailFromDofocus } from "./coefficient.api.js";
+import {
+  getCoefficientsByServer,
+  getItemDetailFromDofocus,
+  getItemPriceHistoryFromDofocus,
+} from "./coefficient.api.js";
 import type { DofocusItemDetail } from "./coefficient.types.js";
 import { getItemsCache } from "../items/item.cache.js";
 import prisma from "../../db/prisma.js";
@@ -195,7 +199,11 @@ async function upsertCraftPrices(rows: CraftPriceRow[]) {
     })
     .join(",");
 
-  const params = rows.flatMap((row) => [row.itemId, row.serverName, row.craftPrice]);
+  const params = rows.flatMap((row) => [
+    row.itemId,
+    row.serverName,
+    row.craftPrice,
+  ]);
 
   await prisma.$executeRawUnsafe(
     `
@@ -275,7 +283,9 @@ export async function refreshKnownCraftPrices() {
     },
   });
 
-  console.log(`Refreshing craft prices for ${knownItems.length} known item(s)...`);
+  console.log(
+    `Refreshing craft prices for ${knownItems.length} known item(s)...`,
+  );
 
   let refreshed = 0;
   let failed = 0;
@@ -303,6 +313,139 @@ export async function refreshKnownCraftPrices() {
 
   console.log(
     `Craft price refresh completed: ${refreshed} refreshed, ${failed} failed`,
+  );
+
+  return { refreshed, failed };
+}
+
+// ============================================================
+// Historique des prix — miroir en lecture seule de
+// /items/:id/prices/history?serverName=X chez Dofocus, un
+// appel par couple (item, serveur), pas de source bulk.
+// ============================================================
+
+type PriceHistoryRow = {
+  itemId: number;
+  serverName: string;
+  price: number;
+  dateUpdated: Date;
+};
+
+async function insertPriceHistory(rows: PriceHistoryRow[]) {
+  if (rows.length === 0) {
+    return;
+  }
+
+  /*
+   * Un point d'historique Dofocus est immuable une fois relevé : pas de
+   * logique "user wins", un simple insert idempotent (skipDuplicates)
+   * suffit, contrairement à upsertCoefficients/upsertCraftPrices.
+   */
+  await prisma.itemPriceHistory.createMany({
+    data: rows,
+    skipDuplicates: true,
+  });
+}
+
+async function fetchAndStorePriceHistory(itemId: number, serverName: string) {
+  const entries = await getItemPriceHistoryFromDofocus(itemId, serverName);
+
+  const rows: PriceHistoryRow[] = entries.map((entry) => ({
+    itemId,
+    serverName,
+    price: entry.price,
+    dateUpdated: new Date(entry.dateUpdated),
+  }));
+
+  await insertPriceHistory(rows);
+
+  return prisma.itemPriceHistory.findMany({
+    where: {
+      itemId,
+      serverName,
+    },
+    orderBy: {
+      dateUpdated: "asc",
+    },
+  });
+}
+
+export async function getItemPriceHistory(itemId: number, serverName: string) {
+  const item = await prisma.item.findUnique({
+    where: {
+      id: itemId,
+    },
+  });
+
+  if (!item) {
+    return null;
+  }
+
+  const existing = await prisma.itemPriceHistory.findMany({
+    where: {
+      itemId,
+      serverName,
+    },
+    orderBy: {
+      dateUpdated: "asc",
+    },
+  });
+
+  if (existing.length > 0) {
+    return existing;
+  }
+
+  try {
+    return await fetchAndStorePriceHistory(itemId, serverName);
+  } catch (error) {
+    console.error(
+      `Failed to fetch price history for item ${itemId} on ${serverName}:`,
+      error,
+    );
+
+    return existing;
+  }
+}
+
+/**
+ * Rafraîchit uniquement les couples (item, serveur) déjà consultés au
+ * moins une fois — même logique que refreshKnownCraftPrices : pas de
+ * source bulk chez Dofocus, donc pas de balayage du catalogue entier.
+ */
+export async function refreshKnownPriceHistories() {
+  const known = await prisma.itemPriceHistory.findMany({
+    distinct: ["itemId", "serverName"],
+    select: {
+      itemId: true,
+      serverName: true,
+    },
+  });
+
+  console.log(
+    `Refreshing price history for ${known.length} known item/server pair(s)...`,
+  );
+
+  let refreshed = 0;
+  let failed = 0;
+
+  for (const { itemId, serverName } of known) {
+    try {
+      await fetchAndStorePriceHistory(itemId, serverName);
+
+      refreshed++;
+    } catch (error) {
+      failed++;
+      console.error(
+        `Failed to refresh price history for item ${itemId} on ${serverName}:`,
+        error,
+      );
+    }
+
+    await sleep(CRON_FETCH_DELAY_MS);
+  }
+
+  console.log(
+    `Price history refresh completed: ${refreshed} refreshed, ${failed} failed`,
   );
 
   return { refreshed, failed };

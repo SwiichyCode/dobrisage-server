@@ -1,4 +1,8 @@
-import { importCoefficients, refreshKnownCraftPrices } from "./coefficient.service.js";
+import {
+  importCoefficients,
+  refreshKnownCraftPrices,
+  refreshKnownPriceHistories,
+} from "./coefficient.service.js";
 
 const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 heure
 
@@ -40,4 +44,24 @@ export function startCraftPriceRefreshScheduler(): NodeJS.Timeout {
   );
 
   return setInterval(runCraftPriceRefresh, REFRESH_INTERVAL_MS);
+}
+
+async function runPriceHistoryRefresh() {
+  try {
+    console.log("Scheduled price history refresh starting...");
+
+    const result = await refreshKnownPriceHistories();
+
+    console.log("Scheduled price history refresh completed", result);
+  } catch (error) {
+    console.error("Scheduled price history refresh failed:", error);
+  }
+}
+
+export function startPriceHistoryRefreshScheduler(): NodeJS.Timeout {
+  console.log(
+    `Price history refresh scheduler started (every ${REFRESH_INTERVAL_MS / 3_600_000}h)`,
+  );
+
+  return setInterval(runPriceHistoryRefresh, REFRESH_INTERVAL_MS);
 }

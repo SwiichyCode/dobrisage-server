@@ -48,9 +48,10 @@ model Item {
   img         String
   effects     Json   @default("[]")
 
-  marketData  ItemMarketData[]
-  favorites   FavoriteItem[]
-  trades      Trade[]
+  marketData   ItemMarketData[]
+  priceHistory ItemPriceHistory[]
+  favorites    FavoriteItem[]
+  trades       Trade[]
 
   @@index([level])
   @@index([typeId])
@@ -86,11 +87,42 @@ model ItemMarketData {
 }
 
 /**
+ * Historique des prix d'un item sur un serveur donné, tel que renvoyé par
+ * `GET /items/:id/prices/history?serverName=X` chez Dofocus (un point =
+ * un relevé de prix communautaire, à sa date d'origine). Contrairement à
+ * ItemMarketData.craftPrice (dernière valeur connue, éditable par un
+ * utilisateur), cette table est un simple miroir en lecture seule de la
+ * série Dofocus : pas de colonne source/protection, un point une fois
+ * enregistré n'est jamais réécrit (@@unique sur dateUpdated empêche les
+ * doublons lors des rafraîchissements successifs).
+ */
+model ItemPriceHistory {
+  id          Int      @id @default(autoincrement())
+  itemId      Int
+  serverName  String
+  price       Int
+  dateUpdated DateTime
+
+  item        Item     @relation(fields: [itemId], references: [id])
+
+  @@unique([itemId, serverName, dateUpdated])
+  @@index([itemId, serverName])
+}
+
+/**
  * Item marqué comme intéressant par un utilisateur authentifié (Clerk), pour
  * un serveur donné (coefficient/prix étant eux-mêmes par serveur). clerkUserId
  * est l'identifiant opaque fourni par Clerk (claim `sub` du token) : aucune
  * table locale de profils utilisateur n'est maintenue, Clerk reste la seule
  * source de vérité pour l'identité.
+ *
+ * personalCoefficient/personalCraftPrice sont des valeurs privées à
+ * l'utilisateur (ex: son propre prix de craft négocié), indépendantes de la
+ * donnée communautaire d'ItemMarketData — le service ne fait aucun fallback
+ * entre les deux, il renvoie les deux jeux de valeurs et laisse le front
+ * décider quoi afficher. personalCoefficientUpdatedAt trace la fraîcheur de
+ * personalCoefficient spécifiquement (mis à jour à chaque PATCH qui le
+ * modifie), distinct de updatedAt qui bouge aussi sur personalCraftPrice.
  */
 model FavoriteItem {
   id          Int      @id @default(autoincrement())
@@ -98,6 +130,11 @@ model FavoriteItem {
   itemId      Int
   serverName  String
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  personalCoefficient          Float?
+  personalCoefficientUpdatedAt DateTime?
+  personalCraftPrice           Int?
 
   item        Item     @relation(fields: [itemId], references: [id])
 

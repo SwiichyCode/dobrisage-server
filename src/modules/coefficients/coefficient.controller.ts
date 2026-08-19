@@ -2,8 +2,10 @@ import { Request, Response } from "express";
 import {
   getInterestingItems,
   getItemMarketData,
+  getItemPriceHistory,
   importCoefficients,
   refreshKnownCraftPrices,
+  refreshKnownPriceHistories,
   submitItemMarketData,
 } from "./coefficient.service.js";
 
@@ -39,6 +41,68 @@ export async function refreshCraftPricesController(_req: Request, res: Response)
     return res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+export async function refreshPriceHistoryController(_req: Request, res: Response) {
+  try {
+    const result = await refreshKnownPriceHistories();
+
+    return res.json({
+      success: true,
+      refreshed: result,
+    });
+  } catch (error) {
+    console.error("Price history refresh failed:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+export async function getItemPriceHistoryController(req: Request, res: Response) {
+  const itemId = Number(req.params.itemId);
+
+  if (Number.isNaN(itemId)) {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid item id",
+    });
+  }
+
+  const { serverName } = req.params;
+
+  if (typeof serverName !== "string" || serverName.trim().length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid serverName",
+    });
+  }
+
+  try {
+    const data = await getItemPriceHistory(itemId, serverName);
+
+    if (!data) {
+      return res.status(404).json({
+        success: false,
+        error: "Item not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      count: data.length,
+      data,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to fetch item price history",
     });
   }
 }

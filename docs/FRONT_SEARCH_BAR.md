@@ -15,7 +15,7 @@ Base URL : `http://localhost:3000` (dev) — voir `docs/API.md` pour la config C
 | Param | Type | Requis | Détail |
 |---|---|---|---|
 | `q` | string | **oui** | Terme tapé par l'utilisateur. Sous-chaîne insensible à la casse sur le nom de l'item (`ILIKE '%q%'` côté DB) — pas de recherche floue/typo-tolerante, correspondance exacte de sous-chaîne. |
-| `serverName` | string | non | Si fourni, chaque résultat inclut son `coefficient` pour ce serveur. **Toujours envoyer ce paramètre** dès qu'un serveur est sélectionné côté front — sans lui, `coefficient` est toujours `null`. |
+| `serverName` | string | non | Si fourni, chaque résultat inclut son `coefficient`, `updatedAt`, `profitability` et `revenue` pour ce serveur. **Toujours envoyer ce paramètre** dès qu'un serveur est sélectionné côté front — sans lui, ces quatre champs sont toujours `null`. |
 | `limit` | number | non (défaut `20`) | Entier entre 1 et 50. Un `limit` trop élevé n'a pas d'intérêt ici (barre de recherche, pas une liste paginée) — rester sur le défaut ou une valeur proche (10-20) est recommandé. |
 
 ### Réponse
@@ -31,13 +31,19 @@ Base URL : `http://localhost:3000` (dev) — voir `docs/API.md` pour la config C
       "level": 1,
       "img": "https://api.dofusdb.fr/img/items/10009.png",
       "typeId": 10,
-      "coefficient": 100
+      "coefficient": 100,
+      "updatedAt": "2026-08-18T15:12:00.000Z",
+      "profitability": 850000,
+      "revenue": 1200000
     }
   ]
 }
 ```
 
 - `coefficient` peut être `null` : soit `serverName` n'a pas été envoyé, soit le cron n'a pas encore couvert cet item (rare une fois le premier balayage complet passé — voir `docs/API.md` section Coefficients). **Traiter `null` comme "pas encore de donnée", pas comme une erreur.**
+- `updatedAt` : date la plus récente entre la maj du coefficient et celle du prix de craft pour cet item+serveur. `null` si aucun des deux n'existe encore.
+- `profitability` : rentabilité en runes-or si on casse l'item en ciblant, au brisage, la meilleure stat en focus (une seule rune, quantité max), prix de craft déduit. `null` si `coefficient` est `null`, si aucune stat de l'item n'a de rune connue avec un prix sur ce serveur, ou si le prix de craft n'est pas encore renseigné (dans ce dernier cas, regarder `revenue`).
+- `revenue` : même calcul que `profitability` mais **avant** déduction du prix de craft — utile pour afficher un chiffre (ex: "rendement runes : X") quand `profitability` est `null` uniquement parce que le prix de craft manque encore. `null` dans les mêmes cas que `profitability`, sauf le cas "prix de craft manquant" où `profitability` est `null` mais `revenue` peut être renseigné.
 - `data` est un tableau vide (`[]`) si rien ne correspond — pas une erreur, juste "aucun résultat".
 - `typeId` est l'id du type d'équipement DofusDB (pas encore résolu en libellé côté backend — mentionné pour info, pas bloquant pour cette feature).
 

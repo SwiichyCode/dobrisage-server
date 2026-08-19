@@ -38,3 +38,8 @@ export type DofocusItemDetail = {
   coefficients: DofocusCoefficientEntry[];
   prices: DofocusPriceEntry[];
 };
+
+export type DofocusPriceHistoryEntry = {
+  price: number;
+  dateUpdated: string;
+};
