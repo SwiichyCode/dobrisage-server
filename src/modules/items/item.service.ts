@@ -160,6 +160,20 @@ function latestUpdatedAt(...dates: (Date | null | undefined)[]): Date | null {
   return new Date(Math.max(...known.map((date) => date.getTime())));
 }
 
+/**
+ * `Item.slug` est déjà une version minuscule/sans accents de `name` (produite
+ * par DofusDB à l'import, ex: "Épée d'Alle" -> "epee d'alle") — chercher sur
+ * ce champ plutôt que `name` rend la recherche insensible aux accents sans
+ * dépendre de l'extension Postgres `unaccent` ni ajouter de colonne.
+ */
+function normalizeSearchQuery(query: string): string {
+  return query
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 export async function searchItems(
   query: string,
   limit: number = 20,
@@ -167,8 +181,8 @@ export async function searchItems(
 ) {
   const items = await prisma.item.findMany({
     where: {
-      name: {
-        contains: query,
+      slug: {
+        contains: normalizeSearchQuery(query),
         mode: "insensitive",
       },
     },

@@ -166,7 +166,7 @@ Si `serverName` est fourni, chaque résultat inclut en plus, pour ce serveur : `
 **Query params**
 | Param | Type | Requis | Description |
 |---|---|---|---|
-| `q` | string | oui | terme recherché, sous-chaîne insensible à la casse sur `name` |
+| `q` | string | oui | terme recherché, sous-chaîne insensible à la casse **et aux accents** (recherche sur `Item.slug`, une version normalisée de `name` déjà minuscule/sans accents produite par DofusDB — pas d'extension Postgres `unaccent` requise) |
 | `serverName` | string | non | si fourni, inclut coefficient/updatedAt/profitability/revenue de ce serveur pour chaque résultat |
 | `limit` | number (entier, 1 à 50) | non (défaut `20`) | nombre max de résultats |
 

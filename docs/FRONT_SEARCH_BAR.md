@@ -14,7 +14,7 @@ Base URL : `http://localhost:3000` (dev) — voir `docs/API.md` pour la config C
 
 | Param | Type | Requis | Détail |
 |---|---|---|---|
-| `q` | string | **oui** | Terme tapé par l'utilisateur. Sous-chaîne insensible à la casse sur le nom de l'item (`ILIKE '%q%'` côté DB) — pas de recherche floue/typo-tolerante, correspondance exacte de sous-chaîne. |
+| `q` | string | **oui** | Terme tapé par l'utilisateur. Sous-chaîne insensible à la casse **et aux accents** (ex : `epee` retrouve "Épée...") — pas de recherche floue/typo-tolerante, correspondance exacte de sous-chaîne une fois accents/casse normalisés. |
 | `serverName` | string | non | Si fourni, chaque résultat inclut son `coefficient`, `updatedAt`, `profitability` et `revenue` pour ce serveur. **Toujours envoyer ce paramètre** dès qu'un serveur est sélectionné côté front — sans lui, ces quatre champs sont toujours `null`. |
 | `limit` | number | non (défaut `20`) | Entier entre 1 et 50. Un `limit` trop élevé n'a pas d'intérêt ici (barre de recherche, pas une liste paginée) — rester sur le défaut ou une valeur proche (10-20) est recommandé. |
 
