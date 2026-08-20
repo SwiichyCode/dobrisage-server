@@ -6,6 +6,7 @@ import {
 import type { DofocusItemDetail } from "./coefficient.types.js";
 import { getItemsCache } from "../items/item.cache.js";
 import prisma from "../../db/prisma.js";
+import { jitterCoefficient } from "../../helpers/coefficientJitter.js";
 
 export type ItemMarketDataView = {
   id: number;
@@ -146,7 +147,7 @@ export async function importCoefficients() {
         rows.push({
           itemId: entry.itemId,
           serverName,
-          coefficient: entry.coefficient,
+          coefficient: jitterCoefficient(entry.coefficient),
           dateUpdated: new Date(entry.dateUpdated),
         });
       }

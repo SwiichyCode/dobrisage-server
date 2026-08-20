@@ -73,7 +73,25 @@ export async function updateFavorite(
   const { personalCoefficient, ...rest } = data;
 
   try {
-    return await prisma.favoriteItem.update({
+    const existing = await prisma.favoriteItem.findUnique({
+      where: {
+        clerkUserId_itemId_serverName: { clerkUserId, itemId, serverName },
+      },
+    });
+
+    if (!existing) {
+      return null;
+    }
+
+    const now = new Date();
+    const historyCoefficient =
+      personalCoefficient !== undefined &&
+      personalCoefficient !== null &&
+      personalCoefficient !== existing.personalCoefficient
+        ? personalCoefficient
+        : null;
+
+    const updated = await prisma.favoriteItem.update({
       where: {
         clerkUserId_itemId_serverName: { clerkUserId, itemId, serverName },
       },
@@ -82,10 +100,24 @@ export async function updateFavorite(
         ...(personalCoefficient !== undefined && {
           personalCoefficient,
           personalCoefficientUpdatedAt:
-            personalCoefficient === null ? null : new Date(),
+            personalCoefficient === null ? null : now,
         }),
       },
     });
+
+    if (historyCoefficient !== null) {
+      await prisma.personalCoefficientHistory.create({
+        data: {
+          clerkUserId,
+          itemId,
+          serverName,
+          coefficient: historyCoefficient,
+          dateUpdated: now,
+        },
+      });
+    }
+
+    return updated;
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -103,9 +135,34 @@ export async function removeFavorite(
   itemId: number,
   serverName: string,
 ) {
-  const { count } = await prisma.favoriteItem.deleteMany({
-    where: { clerkUserId, itemId, serverName },
-  });
+  const [{ count }] = await prisma.$transaction([
+    prisma.favoriteItem.deleteMany({ where: { clerkUserId, itemId, serverName } }),
+    prisma.personalCoefficientHistory.deleteMany({
+      where: { clerkUserId, itemId, serverName },
+    }),
+  ]);
 
   return count > 0;
+}
+
+export async function getPersonalCoefficientHistory(
+  clerkUserId: string,
+  itemId: number,
+  serverName: string,
+) {
+  const favorite = await prisma.favoriteItem.findUnique({
+    where: {
+      clerkUserId_itemId_serverName: { clerkUserId, itemId, serverName },
+    },
+  });
+
+  if (!favorite) {
+    return null;
+  }
+
+  return prisma.personalCoefficientHistory.findMany({
+    where: { clerkUserId, itemId, serverName },
+    orderBy: { dateUpdated: "asc" },
+    select: { coefficient: true, dateUpdated: true },
+  });
 }

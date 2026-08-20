@@ -48,10 +48,11 @@ model Item {
   img         String
   effects     Json   @default("[]")
 
-  marketData   ItemMarketData[]
-  priceHistory ItemPriceHistory[]
-  favorites    FavoriteItem[]
-  trades       Trade[]
+  marketData                  ItemMarketData[]
+  priceHistory                ItemPriceHistory[]
+  favorites                   FavoriteItem[]
+  trades                      Trade[]
+  personalCoefficientHistory  PersonalCoefficientHistory[]
 
   @@index([level])
   @@index([typeId])
@@ -139,6 +140,29 @@ model FavoriteItem {
   item        Item     @relation(fields: [itemId], references: [id])
 
   @@unique([clerkUserId, itemId, serverName])
+}
+
+/**
+ * Point d'historique de FavoriteItem.personalCoefficient, écrit à chaque
+ * PATCH /favorites/:itemId qui change cette valeur (pas de colonne source :
+ * contrairement à ItemMarketData.coefficient, personalCoefficient n'a
+ * qu'une seule origine possible, la saisie utilisateur). Pas de FK vers
+ * FavoriteItem.id : le favori peut être retiré puis recréé sans que ça
+ * affecte cette table, et supprimer un favori supprime explicitement son
+ * historique (cf. removeFavorite) plutôt que de compter sur une cascade.
+ */
+model PersonalCoefficientHistory {
+  id          Int      @id @default(autoincrement())
+  clerkUserId String
+  itemId      Int
+  serverName  String
+  coefficient Float
+  dateUpdated DateTime
+
+  item        Item     @relation(fields: [itemId], references: [id])
+
+  @@unique([clerkUserId, itemId, serverName, dateUpdated])
+  @@index([clerkUserId, itemId, serverName])
 }
 
 /**

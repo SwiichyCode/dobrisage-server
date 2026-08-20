@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../../middlewares/require-auth.js";
 import {
   addFavoriteController,
+  getFavoriteHistoryController,
   listFavoritesController,
   removeFavoriteController,
   updateFavoriteController,
@@ -15,5 +16,6 @@ router.get("/", listFavoritesController);
 router.post("/", addFavoriteController);
 router.patch("/:itemId", updateFavoriteController);
 router.delete("/:itemId", removeFavoriteController);
+router.get("/:itemId/history", getFavoriteHistoryController);
 
 export default router;

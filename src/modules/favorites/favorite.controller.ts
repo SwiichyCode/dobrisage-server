@@ -3,6 +3,7 @@ import { getAuth } from "@clerk/express";
 import { Prisma } from "../../generated/prisma/client.js";
 import {
   addFavorite,
+  getPersonalCoefficientHistory,
   listFavorites,
   removeFavorite,
   updateFavorite,
@@ -186,6 +187,50 @@ export async function removeFavoriteController(req: Request, res: Response) {
     return res.status(500).json({
       success: false,
       error: "Failed to remove favorite",
+    });
+  }
+}
+
+export async function getFavoriteHistoryController(req: Request, res: Response) {
+  const { userId } = getAuth(req);
+  const itemId = Number(req.params.itemId);
+  const { serverName } = req.query;
+
+  if (!Number.isInteger(itemId)) {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid itemId",
+    });
+  }
+
+  if (typeof serverName !== "string" || serverName.trim().length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: "Missing or invalid serverName",
+    });
+  }
+
+  try {
+    const history = await getPersonalCoefficientHistory(userId!, itemId, serverName);
+
+    if (history === null) {
+      return res.status(404).json({
+        success: false,
+        error: "Favorite not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      count: history.length,
+      data: history,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to fetch coefficient history",
     });
   }
 }

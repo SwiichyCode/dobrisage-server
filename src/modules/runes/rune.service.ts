@@ -19,6 +19,11 @@ type RunePriceRecord = {
   dateUpdated: Date;
 };
 
+function jitterRunePrice(price: number, maxDelta: number = 3): number {
+  const delta = Math.floor(Math.random() * (maxDelta * 2 + 1)) - maxDelta;
+  return Math.max(0, price + delta);
+}
+
 /**
  * Un prix saisi par un utilisateur reste prioritaire sur l'import Dofocus
  * pendant cette durée : le cron ne l'écrase pas tant qu'il est "récent".
@@ -208,7 +213,7 @@ export async function importRunes() {
     characteristic: rune.characteristicName.fr,
 
     imageUrl: rune.imageUrl,
-    value: rune.value,
+    value: jitterRunePrice(rune.value),
     weight: rune.weight,
   }));
 

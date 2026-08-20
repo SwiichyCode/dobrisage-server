@@ -661,6 +661,37 @@ Retire un item des favoris de l'utilisateur connecté.
 - `400` : `itemId` invalide, ou `serverName` manquant/vide.
 - `404` : aucun favori correspondant pour cet utilisateur.
 
+Supprimer un favori supprime aussi son historique de coefficient personnel (`PersonalCoefficientHistory`) — l'historique n'a de sens qu'attaché à un favori actif.
+
+### `GET /favorites/:itemId/history?serverName=`
+
+Historique des valeurs successives de `personalCoefficient` pour ce favori, trié par `dateUpdated` croissant (ordre chronologique, prêt pour un tracé de courbe sans retri côté front). Un point est ajouté à chaque `PATCH /favorites/:itemId` qui change `personalCoefficient` vers une valeur non `null`.
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `itemId` | number (path) | id de l'item |
+| `serverName` | string (query, requis) | serveur du favori — même logique que `DELETE /favorites/:itemId` |
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "count": 3,
+  "data": [
+    { "coefficient": 3800, "dateUpdated": "2026-07-01T00:00:00.000Z" },
+    { "coefficient": 4000, "dateUpdated": "2026-07-20T10:00:00.000Z" },
+    { "coefficient": 4200, "dateUpdated": "2026-08-18T15:20:00.000Z" }
+  ]
+}
+```
+
+`data: []` (pas une erreur) si le favori existe mais que `personalCoefficient` n'a encore jamais été renseigné.
+
+**Erreurs**
+- `400` : `itemId` invalide, ou `serverName` manquant/vide.
+- `404` : aucun favori correspondant pour cet utilisateur.
+
 ---
 
 ## Achats/Reventes
