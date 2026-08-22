@@ -137,6 +137,8 @@ model FavoriteItem {
   personalCoefficient          Float?
   personalCoefficientUpdatedAt DateTime?
   personalCraftPrice           Int?
+  personalFocusSlug            String?
+  personalFocusEnabled         Boolean  @default(true)
 
   item        Item     @relation(fields: [itemId], references: [id])
 

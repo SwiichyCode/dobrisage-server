@@ -80,7 +80,7 @@ export async function addFavoriteController(req: Request, res: Response) {
 export async function updateFavoriteController(req: Request, res: Response) {
   const { userId } = getAuth(req);
   const itemId = Number(req.params.itemId);
-  const { serverName, personalCoefficient, personalCraftPrice } = req.body;
+  const { serverName, personalCoefficient, personalCraftPrice, personalFocusSlug, personalFocusEnabled } = req.body;
 
   if (!Number.isInteger(itemId)) {
     return res.status(400).json({
@@ -96,7 +96,12 @@ export async function updateFavoriteController(req: Request, res: Response) {
     });
   }
 
-  const data: { personalCoefficient?: number | null; personalCraftPrice?: number | null } = {};
+  const data: {
+    personalCoefficient?: number | null;
+    personalCraftPrice?: number | null;
+    personalFocusSlug?: string | null;
+    personalFocusEnabled?: boolean;
+  } = {};
 
   if (personalCoefficient !== undefined) {
     if (personalCoefficient !== null && typeof personalCoefficient !== "number") {
@@ -118,6 +123,28 @@ export async function updateFavoriteController(req: Request, res: Response) {
     }
 
     data.personalCraftPrice = personalCraftPrice;
+  }
+
+  if (personalFocusSlug !== undefined) {
+    if (personalFocusSlug !== null && typeof personalFocusSlug !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid personalFocusSlug",
+      });
+    }
+
+    data.personalFocusSlug = personalFocusSlug;
+  }
+
+  if (personalFocusEnabled !== undefined) {
+    if (typeof personalFocusEnabled !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid personalFocusEnabled",
+      });
+    }
+
+    data.personalFocusEnabled = personalFocusEnabled;
   }
 
   if (Object.keys(data).length === 0) {

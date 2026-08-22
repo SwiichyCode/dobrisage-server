@@ -515,6 +515,7 @@ Un **favori** est un item marqué comme intéressant par un utilisateur connect�
 Un favori porte deux jeux de valeurs distincts, à ne pas confondre :
 - `coefficient` / `craftPrice` : donnée **communautaire**, partagée entre tous les utilisateurs pour ce couple item/serveur (lue depuis `ItemMarketData`, alimentée par l'import Dofocus + les soumissions communautaires).
 - `personalCoefficient` / `personalCraftPrice` : donnée **privée** à l'utilisateur connecté, propre à ce favori (ex: son propre prix de craft négocié). `null` tant qu'il ne l'a pas renseignée.
+- `personalFocusSlug` / `personalFocusEnabled` : donnée **privée**, la rune "focusée" au brisage pour ce favori (slug de caractéristique, ex. `"vitalite"`) et si ce focus est actif. `personalFocusSlug` est `null` tant que l'utilisateur n'a rien choisi (le front retombe sur son calcul "meilleure rune" par défaut) ; `personalFocusEnabled` vaut `true` par défaut.
 
 Le backend ne fait **aucun fallback automatique** entre les deux — il renvoie toujours les deux jeux de valeurs, chacun pouvant être `null` indépendamment. C'est au front de décider quoi afficher en priorité (ex: afficher `personalCraftPrice` s'il n'est pas `null`, sinon `craftPrice`).
 
@@ -549,7 +550,9 @@ Liste les favoris de l'utilisateur connecté, avec l'item, son coefficient/prix 
       "craftPrice": 13500000,
       "personalCoefficient": null,
       "personalCoefficientUpdatedAt": null,
-      "personalCraftPrice": 12800000
+      "personalCraftPrice": 12800000,
+      "personalFocusSlug": "vitalite",
+      "personalFocusEnabled": true
     }
   ]
 }
@@ -586,7 +589,9 @@ Ajoute un item aux favoris de l'utilisateur connecté (idempotent : ajouter un f
     "updatedAt": "2026-08-18T15:20:00.000Z",
     "personalCoefficient": null,
     "personalCoefficientUpdatedAt": null,
-    "personalCraftPrice": null
+    "personalCraftPrice": null,
+    "personalFocusSlug": null,
+    "personalFocusEnabled": true
   }
 }
 ```
@@ -597,7 +602,7 @@ Ajoute un item aux favoris de l'utilisateur connecté (idempotent : ajouter un f
 
 ### `PATCH /favorites/:itemId`
 
-Renseigne ou met à jour le coefficient et/ou le prix de craft **personnels** d'un favori existant. Au moins un des deux champs doit être fourni ; l'autre reste inchangé s'il est omis. Envoyer `null` explicitement efface une valeur déjà renseignée.
+Renseigne ou met à jour le coefficient, le prix de craft et/ou la rune focus **personnels** d'un favori existant. Au moins un des quatre champs `personal*` doit être fourni ; les autres restent inchangés s'ils sont omis. Envoyer `null` explicitement efface une valeur déjà renseignée (`personalFocusEnabled` étant un booléen non nullable, il n'y a rien à effacer pour lui : envoyer `true`/`false`).
 
 **Params**
 | Param | Type | Description |
@@ -609,12 +614,16 @@ Renseigne ou met à jour le coefficient et/ou le prix de craft **personnels** d'
 {
   "serverName": "Rafal",
   "personalCoefficient": 4300,
-  "personalCraftPrice": 12800000
+  "personalCraftPrice": 12800000,
+  "personalFocusSlug": "vitalite",
+  "personalFocusEnabled": true
 }
 ```
 - `serverName` : string non vide, requis (identifie le favori avec `itemId`).
 - `personalCoefficient` : number ou `null`, optionnel.
 - `personalCraftPrice` : entier ou `null`, optionnel.
+- `personalFocusSlug` : string ou `null`, optionnel — pas de vérification contre un catalogue de slugs connus côté backend.
+- `personalFocusEnabled` : booléen, optionnel.
 
 **Réponse `200`**
 ```json
@@ -629,13 +638,15 @@ Renseigne ou met à jour le coefficient et/ou le prix de craft **personnels** d'
     "updatedAt": "2026-08-19T09:05:00.000Z",
     "personalCoefficient": 4300,
     "personalCoefficientUpdatedAt": "2026-08-19T09:05:00.000Z",
-    "personalCraftPrice": 12800000
+    "personalCraftPrice": 12800000,
+    "personalFocusSlug": "vitalite",
+    "personalFocusEnabled": true
   }
 }
 ```
 
 **Erreurs**
-- `400` : `itemId` invalide, `serverName` manquant/vide, `personalCoefficient`/`personalCraftPrice` d'un type invalide, ou aucun des deux champs fourni.
+- `400` : `itemId` invalide, `serverName` manquant/vide, l'un des quatre champs `personal*` d'un type invalide, ou aucun d'entre eux fourni.
 - `404` : aucun favori correspondant pour cet utilisateur (item pas encore ajouté aux favoris sur ce serveur).
 
 ### `DELETE /favorites/:itemId?serverName=`

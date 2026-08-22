@@ -18,8 +18,9 @@ Chaque favori porte deux jeux de valeurs, à ne pas confondre côté UI :
 
 - `coefficient` / `craftPrice` : donnée **communautaire**, partagée entre tous les utilisateurs pour ce couple item/serveur (celle affichée sur la page coefficient classique).
 - `personalCoefficient` / `personalCraftPrice` : donnée **privée** à l'utilisateur connecté, propre à ce favori (ex: son propre prix de craft négocié). `null` tant qu'il ne l'a pas renseignée via `PATCH`.
+- `personalFocusSlug` / `personalFocusEnabled` : donnée **privée**, la rune focusée au brisage pour ce favori et si le focus est actif. `personalFocusSlug` est `null` tant que rien n'a été choisi (le front retombe sur son calcul "meilleure rune" par défaut) ; `personalFocusEnabled` vaut `true` par défaut.
 
-Le backend ne fait **aucun fallback automatique** entre les deux — il renvoie toujours les deux, chacun pouvant être `null` indépendamment. Recommandation d'affichage côté front : afficher la valeur personnelle en priorité si elle n'est pas `null`, sinon retomber sur la valeur communautaire (avec un indicateur visuel — icône ou libellé — pour distinguer "ma valeur" de "valeur communauté").
+Le backend ne fait **aucun fallback automatique** entre communautaire et personnel — il renvoie toujours les deux jeux de valeurs, chacun pouvant être `null` indépendamment. Recommandation d'affichage côté front : afficher la valeur personnelle en priorité si elle n'est pas `null`, sinon retomber sur la valeur communautaire (avec un indicateur visuel — icône ou libellé — pour distinguer "ma valeur" de "valeur communauté").
 
 ## 1. Ajouter un favori
 
@@ -54,7 +55,9 @@ Idempotent : ajouter un favori déjà existant ne crée pas de doublon, renvoie 
     "updatedAt": "2026-08-18T15:20:00.000Z",
     "personalCoefficient": null,
     "personalCoefficientUpdatedAt": null,
-    "personalCraftPrice": null
+    "personalCraftPrice": null,
+    "personalFocusSlug": null,
+    "personalFocusEnabled": true
   }
 }
 ```
@@ -72,12 +75,14 @@ PATCH /favorites/:itemId
 {
   "serverName": "Rafal",
   "personalCoefficient": 4300,
-  "personalCraftPrice": 12800000
+  "personalCraftPrice": 12800000,
+  "personalFocusSlug": "vitalite",
+  "personalFocusEnabled": true
 }
 ```
 
 - `serverName` : requis, identifie le favori avec `itemId` (même logique que les deux autres endpoints).
-- `personalCoefficient` / `personalCraftPrice` : au moins un des deux requis, l'autre est laissé inchangé si omis. Envoyer `null` explicitement pour effacer une valeur déjà renseignée (repasser en "pas de donnée perso").
+- `personalCoefficient` / `personalCraftPrice` / `personalFocusSlug` / `personalFocusEnabled` : au moins un des quatre requis, les autres sont laissés inchangés si omis. Envoyer `null` explicitement pour effacer une valeur déjà renseignée (repasser en "pas de donnée perso") — `personalFocusEnabled` étant un booléen non nullable, envoyer directement `true`/`false`.
 
 ### Réponse `200`
 
@@ -93,7 +98,9 @@ PATCH /favorites/:itemId
     "updatedAt": "2026-08-19T09:05:00.000Z",
     "personalCoefficient": 4300,
     "personalCoefficientUpdatedAt": "2026-08-19T09:05:00.000Z",
-    "personalCraftPrice": 12800000
+    "personalCraftPrice": 12800000,
+    "personalFocusSlug": "vitalite",
+    "personalFocusEnabled": true
   }
 }
 ```
@@ -102,7 +109,7 @@ PATCH /favorites/:itemId
 
 | Code | Cas |
 |---|---|
-| `400` | `personalCoefficient`/`personalCraftPrice` d'un type invalide, ou aucun des deux fourni |
+| `400` | `personalCoefficient`/`personalCraftPrice`/`personalFocusSlug`/`personalFocusEnabled` d'un type invalide, ou aucun des quatre fourni |
 | `404` | pas de favori pour cet item/serveur — il faut d'abord l'ajouter via `POST /favorites` |
 
 ## 3. Retirer un favori
@@ -153,13 +160,15 @@ Pas de query params — renvoie tous les favoris de l'utilisateur connecté (dé
       "craftPrice": 13500000,
       "personalCoefficient": null,
       "personalCoefficientUpdatedAt": null,
-      "personalCraftPrice": 12800000
+      "personalCraftPrice": 12800000,
+      "personalFocusSlug": "vitalite",
+      "personalFocusEnabled": true
     }
   ]
 }
 ```
 
-`coefficient`/`craftPrice` (communautaires) et `personalCoefficient`/`personalCraftPrice` (perso) sont directement inclus — pas besoin d'un second appel à `GET /coefficients/:itemId/:serverName` par favori pour afficher la liste. Les quatre champs peuvent être `null` indépendamment si aucune donnée n'existe encore — traiter comme "pas encore de donnée". Voir la section "Données communautaires vs. données personnelles" plus haut pour la logique d'affichage recommandée.
+`coefficient`/`craftPrice` (communautaires) et `personalCoefficient`/`personalCraftPrice`/`personalFocusSlug`/`personalFocusEnabled` (perso) sont directement inclus — pas besoin d'un second appel à `GET /coefficients/:itemId/:serverName` par favori pour afficher la liste. Les champs `personal*` peuvent être `null` indépendamment (sauf `personalFocusEnabled`, toujours booléen) si aucune donnée n'existe encore — traiter comme "pas encore de donnée". Voir la section "Données communautaires vs. données personnelles" plus haut pour la logique d'affichage recommandée.
 
 `createdAt` (date d'ajout aux favoris) et `updatedAt` (dernière modification de n'importe quel champ du favori) sont tous les deux renvoyés, y compris par `GET /favorites` — pas seulement au moment d'un `PATCH`. Recommandation d'affichage : `createdAt` pour "Favori depuis...", et `updatedAt` uniquement s'il diffère de `createdAt` (ex: "Modifié le...").
 
@@ -172,7 +181,7 @@ Un clic sur une ligne de la liste peut réutiliser `item.id` + `serverName` pour
 | Code | Cas |
 |---|---|
 | `401` | Token absent ou invalide/expiré — `{ "success": false, "error": "Authentication required" }`. À gérer en redirigeant vers la connexion Clerk, pas en affichant une erreur générique. |
-| `400` | `itemId` invalide, ou `serverName` manquant/vide (POST, PATCH et DELETE) ; sur PATCH, aussi si `personalCoefficient`/`personalCraftPrice` sont d'un type invalide ou si aucun des deux n'est fourni |
+| `400` | `itemId` invalide, ou `serverName` manquant/vide (POST, PATCH et DELETE) ; sur PATCH, aussi si `personalCoefficient`/`personalCraftPrice`/`personalFocusSlug`/`personalFocusEnabled` sont d'un type invalide ou si aucun des quatre n'est fourni |
 | `404` | `POST` : l'item `itemId` n'existe pas dans le catalogue. `PATCH`/`DELETE` : aucun favori correspondant pour cet utilisateur (pas encore ajouté, ou déjà retiré). |
 
 Pas de rate limiting sur ces quatre endpoints.

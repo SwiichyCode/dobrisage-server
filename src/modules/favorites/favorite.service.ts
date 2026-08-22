@@ -32,6 +32,8 @@ export async function listFavorites(clerkUserId: string) {
       personalCoefficient,
       personalCoefficientUpdatedAt,
       personalCraftPrice,
+      personalFocusSlug,
+      personalFocusEnabled,
     }) => {
       const market = marketDataByKey.get(`${itemId}:${serverName}`);
 
@@ -45,6 +47,8 @@ export async function listFavorites(clerkUserId: string) {
         personalCoefficient,
         personalCoefficientUpdatedAt,
         personalCraftPrice,
+        personalFocusSlug,
+        personalFocusEnabled,
       };
     },
   );
@@ -68,7 +72,12 @@ export async function updateFavorite(
   clerkUserId: string,
   itemId: number,
   serverName: string,
-  data: { personalCoefficient?: number | null; personalCraftPrice?: number | null },
+  data: {
+    personalCoefficient?: number | null;
+    personalCraftPrice?: number | null;
+    personalFocusSlug?: string | null;
+    personalFocusEnabled?: boolean;
+  },
 ) {
   const { personalCoefficient, ...rest } = data;
 
