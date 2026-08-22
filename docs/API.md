@@ -824,6 +824,127 @@ Supprime un trade appartenant à l'utilisateur connecté.
 
 ---
 
+## Prix de runes personnels
+
+Un **prix de rune personnel** est un prix saisi par un utilisateur connecté pour une rune donnée, sur un serveur donné — indépendant du prix communautaire (`GET /runes`, alimenté par l'import Dofocus + soumissions communautaires via `PUT /runes/:id/price`). Un utilisateur peut brisser sur plusieurs serveurs : ces prix sont donc tenus par couple (rune, serveur), pas globalement par rune — un même utilisateur peut avoir un jeu de prix différent sur `Rafal` et sur `Brial`. Comme pour `/favorites` et `/trades`, ces endpoints nécessitent le header `Authorization: Bearer <token>` (Clerk) et ne stockent que l'id opaque `clerkUserId`.
+
+Le backend ne fait **aucun fallback automatique** entre prix personnel et prix communautaire, ni aucun calcul de rentabilité les combinant — `GET /rune-prices` renvoie toujours les deux jeux de valeurs côte à côte pour chaque rune, `communityPrices` (identique à `GET /runes`) et `personalPrices` (propre à l'utilisateur connecté), et c'est au front de décider lequel utiliser pour son calcul de brisage (typiquement : `personalPrices` s'il existe une entrée pour le serveur courant, sinon retomber sur `communityPrices`).
+
+**Erreur commune aux quatre endpoints** : `401` si le header `Authorization` est absent ou le token invalide/expiré — `{ "success": false, "error": "Authentication required" }`.
+
+### `GET /rune-prices?serverName=`
+
+Liste toutes les runes avec, pour chacune, ses prix communautaires et les prix personnels de l'utilisateur connecté.
+
+**Query params**
+| Param | Type | Requis | Description |
+|---|---|---|---|
+| `serverName` | string | non | Si fourni, ne garde dans `communityPrices` et `personalPrices` que les entrées de ce serveur. Contrairement à `GET /runes`, ne filtre **pas** les runes sans prix sur ce serveur — la liste complète des runes est toujours renvoyée, pour que le front affiche un formulaire de saisie même sur les runes sans prix personnel existant. |
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "count": 53,
+  "data": [
+    {
+      "id": 1524,
+      "name": "Rune Age",
+      "characteristicId": 14,
+      "characteristic": "Agilité",
+      "imageUrl": "https://api.dofusdb.fr/img/items/78046.png",
+      "value": 1,
+      "weight": 1,
+      "communityPrices": [
+        { "serverName": "Rafal", "price": 79, "dateUpdated": "2026-08-16T10:53:46.882Z" }
+      ],
+      "personalPrices": [
+        { "serverName": "Rafal", "price": 85, "updatedAt": "2026-08-19T09:05:00.000Z" }
+      ]
+    }
+  ]
+}
+```
+
+**Erreurs**
+- `400` : `serverName` fourni mais vide.
+
+### `GET /rune-prices/servers`
+
+Liste les serveurs pour lesquels l'utilisateur connecté a au moins un prix personnel renseigné — pratique pour construire un sélecteur de serveur sans avoir à charger `GET /rune-prices` en entier.
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "count": 2,
+  "data": ["Brial", "Rafal"]
+}
+```
+
+### `PUT /rune-prices/:id`
+
+Crée ou met à jour le prix personnel d'une rune sur un serveur donné pour l'utilisateur connecté (upsert).
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `id` | number | id de la rune (`Rune.id`) |
+
+**Body**
+```json
+{
+  "serverName": "Rafal",
+  "price": 85
+}
+```
+- `serverName` : string non vide, requis.
+- `price` : entier > 0, requis.
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 42,
+    "clerkUserId": "user_2abc...",
+    "runeId": 1524,
+    "serverName": "Rafal",
+    "price": 85,
+    "updatedAt": "2026-08-19T09:05:00.000Z"
+  }
+}
+```
+
+**Erreurs**
+- `400` : `id` (rune) invalide, `serverName` manquant/vide, ou `price` invalide (non entier ou ≤ 0).
+- `404` : la rune `id` n'existe pas.
+
+### `DELETE /rune-prices/:id?serverName=`
+
+Supprime le prix personnel d'une rune sur un serveur donné (retour au prix communautaire par défaut côté front).
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `id` | number | id de la rune (`Rune.id`) |
+
+**Query params**
+| Param | Type | Requis | Description |
+|---|---|---|---|
+| `serverName` | string | oui | serveur du prix personnel à retirer |
+
+**Réponse `200`**
+```json
+{ "success": true }
+```
+
+**Erreurs**
+- `400` : `id` invalide, ou `serverName` manquant/vide.
+- `404` : aucun prix personnel correspondant pour cet utilisateur sur ce serveur.
+
+---
+
 ## Admin
 
 ### `GET /admin/seed`
@@ -861,6 +982,6 @@ Reconstruit la base de données depuis zéro (ex : changement de région/instanc
 
 ## Notes pour le front
 
-- Aucune authentification n'existe sur cette API en dehors de `/favorites` et `/trades` — tout autre endpoint d'écriture (`PUT /runes/:id/price`, `PUT /coefficients/:itemId/:serverName`) est ouvert, à traiter comme une donnée communautaire non modérée pour l'instant.
+- Aucune authentification n'existe sur cette API en dehors de `/favorites`, `/trades` et `/rune-prices` — tout autre endpoint d'écriture (`PUT /runes/:id/price`, `PUT /coefficients/:itemId/:serverName`) est ouvert, à traiter comme une donnée communautaire non modérée pour l'instant.
 - Les endpoints `*/import` sont rate-limités et coûteux (appels à des API externes) : ne pas les déclencher depuis une interaction utilisateur classique, ils sont prévus pour un usage admin/cron.
 - La liste des noms de serveur (`serverName`) n'est validée nulle part côté backend — le front doit envoyer une valeur cohérente avec celles utilisées par Dofocus (ex: `Rafal`, `Brial`, `Dakal`, `Draconiros`, `HellMina`, `Imagiro`, `Kourial`, `Mikhal`, `Ombre`, `Orukam`, `Salar`, `TalKasha`, `Tylezia`).

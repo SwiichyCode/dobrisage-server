@@ -22,6 +22,7 @@ model Rune {
   value              Int
   weight             Float
   prices             RunePrice[]
+  userPrices         UserRunePrice[]
 }
 
 model RunePrice {
@@ -163,6 +164,29 @@ model PersonalCoefficientHistory {
 
   @@unique([clerkUserId, itemId, serverName, dateUpdated])
   @@index([clerkUserId, itemId, serverName])
+}
+
+/**
+ * Prix de rune personnel, saisi par un utilisateur authentifié (Clerk) pour
+ * un serveur donné. Indépendant de RunePrice (donnée communautaire
+ * DOFOCUS/USER, partagée par tous) : ces valeurs ne sont visibles/éditables
+ * que par leur propriétaire et n'affectent jamais RunePrice ni le calcul de
+ * rentabilité communautaire (cf. profitability.ts). Un utilisateur peut
+ * brisser sur plusieurs serveurs, donc un jeu de prix par (rune, serveur),
+ * pas par rune seule (@@unique inclut serverName).
+ */
+model UserRunePrice {
+  id          Int      @id @default(autoincrement())
+  clerkUserId String
+  runeId      Int
+  serverName  String
+  price       Int
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  rune        Rune     @relation(fields: [runeId], references: [id])
+
+  @@unique([clerkUserId, runeId, serverName])
+  @@index([clerkUserId, serverName])
 }
 
 /**
