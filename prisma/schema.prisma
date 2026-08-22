@@ -216,3 +216,40 @@ model Trade {
 
   @@index([clerkUserId])
 }
+
+/**
+ * Un "suivi" créé par l'utilisateur : un titre libre (ex: "Craft Bouée",
+ * "Clé Donjon Kimbo") sous lequel il regroupe plusieurs scans /chat-analyzer
+ * dans le temps. Volontairement pas lié au catalogue Item — la feature doit
+ * couvrir des dépenses qui n'y existent pas (clés de donjon, etc.), voir
+ * docs/BACKEND_CHAT_SCAN_HISTORY.md.
+ */
+model ScanSeries {
+  id          Int         @id @default(autoincrement())
+  clerkUserId String
+  title       String
+  createdAt   DateTime    @default(now())
+
+  entries     ScanEntry[]
+
+  @@index([clerkUserId])
+}
+
+/**
+ * Une itération d'un ScanSeries : un scan /chat-analyzer enregistré à un
+ * instant donné. `items` est le tableau ItemSummary[] déjà calculé côté
+ * front (itemName, quantity, transactionCount, totalSpent, averageUnitPrice,
+ * minUnitPrice, maxUnitPrice), stocké tel quel en JSON — itemName reste un
+ * texte OCR libre, jamais résolu au catalogue.
+ */
+model ScanEntry {
+  id          Int        @id @default(autoincrement())
+  seriesId    Int
+  totalSpent  Int
+  items       Json
+  createdAt   DateTime   @default(now())
+
+  series      ScanSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  @@index([seriesId])
+}

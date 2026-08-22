@@ -10,6 +10,7 @@ import adminRoutes from "./modules/admin/admin.routes.js";
 import favoriteRoutes from "./modules/favorites/favorite.routes.js";
 import tradeRoutes from "./modules/trades/trade.routes.js";
 import userRunePriceRoutes from "./modules/user-rune-prices/user-rune-price.routes.js";
+import scanSeriesRoutes from "./modules/scan-series/scan-series.routes.js";
 import prisma from "./db/prisma.js";
 import { startRuneImportScheduler } from "./modules/runes/rune.scheduler.js";
 import {
@@ -59,6 +60,7 @@ app.use("/admin", adminRoutes);
 app.use("/favorites", clerkMiddleware(), favoriteRoutes);
 app.use("/trades", clerkMiddleware(), tradeRoutes);
 app.use("/rune-prices", clerkMiddleware(), userRunePriceRoutes);
+app.use("/scan-series", clerkMiddleware(), scanSeriesRoutes);
 
 app.use((_req: Request, res: Response) => {
   res.status(404).json({

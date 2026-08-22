@@ -835,6 +835,123 @@ Supprime un trade appartenant à l'utilisateur connecté.
 
 ---
 
+## Suivis de scans
+
+Un **suivi de scan** (`ScanSeries`) regroupe, sous un titre libre choisi par l'utilisateur (ex: "Craft Bouée", "Clé Donjon Kimbo"), plusieurs scans `/chat-analyzer` enregistrés dans le temps pour la même dépense récurrente. Chaque scan enregistré devient une **itération** (`ScanEntry`) : un instantané figé du résultat déjà calculé côté front (`computeTotalSpent`, `aggregatePurchasesByItem` → `ItemSummary[]`, voir `docs/FRONT_CHAT_ANALYZER.md`), stocké tel quel — `items` est un JSON libre, jamais résolu au catalogue `Item`, et il n'y a ni `serverName` ni lien vers `/trades`. Comme pour `/favorites`, `/trades` et `/rune-prices`, ces endpoints nécessitent le header `Authorization: Bearer <token>` (Clerk) et ne stockent que l'id opaque `clerkUserId`.
+
+Pas de `PATCH` sur un suivi ou une itération, et pas de fusion/renommage pour cette première version — un titre mal orthographié se corrige en supprimant/recréant le suivi.
+
+**Erreur commune aux quatre endpoints** : `401` si le header `Authorization` est absent ou le token invalide/expiré — `{ "success": false, "error": "Authentication required" }`.
+
+### `GET /scan-series`
+
+Liste tous les suivis de l'utilisateur connecté, du plus récemment créé au plus ancien, avec leurs itérations imbriquées triées par ordre chronologique croissant (prêt pour un affichage "itération 1 → 2 → 3" sans retri côté front). Le delta de `totalSpent` entre itérations se calcule côté front.
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "count": 1,
+  "data": [
+    {
+      "id": 3,
+      "clerkUserId": "user_2abc...",
+      "title": "Craft Bouée",
+      "createdAt": "2026-08-22T10:00:00.000Z",
+      "entries": [
+        { "id": 5, "seriesId": 3, "totalSpent": 245000, "items": [ /* ItemSummary[] */ ], "createdAt": "2026-08-22T10:00:00.000Z" },
+        { "id": 9, "seriesId": 3, "totalSpent": 268000, "items": [ /* ItemSummary[] */ ], "createdAt": "2026-08-25T09:00:00.000Z" }
+      ]
+    }
+  ]
+}
+```
+
+### `POST /scan-series`
+
+Crée un nouveau suivi et sa première itération en une seule requête — un suivi n'existe jamais sans au moins une itération.
+
+**Body**
+```json
+{
+  "title": "Craft Bouée",
+  "totalSpent": 245000,
+  "items": [
+    { "itemName": "Bouée", "quantity": 12, "transactionCount": 3, "totalSpent": 84000, "averageUnitPrice": 7000, "minUnitPrice": 6500, "maxUnitPrice": 7500 }
+  ]
+}
+```
+- `title` : string non vide, requis.
+- `totalSpent` : entier ≥ 0, requis.
+- `items` : tableau non vide d'objets avec au moins `itemName` (string non vide), requis.
+
+**Réponse `201`**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 3,
+    "clerkUserId": "user_2abc...",
+    "title": "Craft Bouée",
+    "createdAt": "2026-08-22T10:00:00.000Z",
+    "entries": [
+      { "id": 5, "seriesId": 3, "totalSpent": 245000, "items": [ /* ... */ ], "createdAt": "2026-08-22T10:00:00.000Z" }
+    ]
+  }
+}
+```
+
+**Erreurs**
+- `400` : `title` absent/vide, `totalSpent` non numérique/négatif, ou `items` absent/vide/mal formé.
+
+### `POST /scan-series/:id/entries`
+
+Ajoute une nouvelle itération à un suivi existant appartenant à l'utilisateur connecté.
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `id` | number | id du suivi (`ScanSeries.id`) |
+
+**Body**
+```json
+{
+  "totalSpent": 268000,
+  "items": [ /* ItemSummary[] */ ]
+}
+```
+
+**Réponse `201`**
+```json
+{
+  "success": true,
+  "data": { "id": 9, "seriesId": 3, "totalSpent": 268000, "items": [ /* ... */ ], "createdAt": "2026-08-25T09:00:00.000Z" }
+}
+```
+
+**Erreurs**
+- `400` : `totalSpent` non numérique/négatif, ou `items` absent/vide/mal formé.
+- `404` : aucun suivi correspondant pour cet utilisateur (déjà supprimé, jamais créé, ou appartient à un autre utilisateur) — même règle que `PATCH /trades/:id`.
+
+### `DELETE /scan-series/:id`
+
+Supprime un suivi et toutes ses itérations (cascade en base).
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `id` | number | id du suivi (`ScanSeries.id`) |
+
+**Réponse `200`**
+```json
+{ "success": true }
+```
+
+**Erreurs**
+- `404` : aucun suivi correspondant pour cet utilisateur.
+
+---
+
 ## Prix de runes personnels
 
 Un **prix de rune personnel** est un prix saisi par un utilisateur connecté pour une rune donnée, sur un serveur donné — indépendant du prix communautaire (`GET /runes`, alimenté par l'import Dofocus + soumissions communautaires via `PUT /runes/:id/price`). Un utilisateur peut brisser sur plusieurs serveurs : ces prix sont donc tenus par couple (rune, serveur), pas globalement par rune — un même utilisateur peut avoir un jeu de prix différent sur `Rafal` et sur `Brial`. Comme pour `/favorites` et `/trades`, ces endpoints nécessitent le header `Authorization: Bearer <token>` (Clerk) et ne stockent que l'id opaque `clerkUserId`.
