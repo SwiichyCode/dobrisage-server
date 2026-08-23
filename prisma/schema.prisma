@@ -38,13 +38,16 @@ model RunePrice {
   @@unique([runeId, serverName])
 }
 
+/// name/description store the full DofusDB locale object ({ fr, en, de, es, pt }),
+/// not just French — needed for front-end i18n. slug stays French-only: it's only
+/// used server-side for accent-insensitive search (see normalizeSearchQuery).
 model Item {
   id          Int    @id
   iconId      Int
   typeId      Int?
   level       Int
-  name        String
-  description String
+  name        Json
+  description Json
   slug        String
   img         String
   effects     Json   @default("[]")
@@ -54,6 +57,7 @@ model Item {
   favorites                   FavoriteItem[]
   trades                      Trade[]
   personalCoefficientHistory  PersonalCoefficientHistory[]
+  brisageEntries              BrisageEntry[]
 
   @@index([level])
   @@index([typeId])
@@ -166,6 +170,41 @@ model PersonalCoefficientHistory {
 
   @@unique([clerkUserId, itemId, serverName, dateUpdated])
   @@index([clerkUserId, itemId, serverName])
+}
+
+/**
+ * Un événement réel de brisage : un item cassé, avec le coefficient obtenu
+ * au concasseur et le kamas investi/obtenu figés au moment de la saisie
+ * (pas recalculés plus tard avec les prix courants, contrairement à
+ * FavoriteItemCard/CoefficientEvolution qui affichent une rentabilité "si je
+ * le brisais aujourd'hui"). batchId regroupe les lignes saisies en une seule
+ * fois (plusieurs exemplaires du même favori cassés d'affilée au concasseur)
+ * pour un affichage par session, sans empêcher de supprimer une ligne
+ * individuellement. Pas de FK vers FavoriteItem.id, même raisonnement que
+ * PersonalCoefficientHistory : le favori peut être retiré/recréé sans
+ * affecter le journal.
+ */
+model BrisageEntry {
+  id           Int      @id @default(autoincrement())
+  clerkUserId  String
+  itemId       Int
+  serverName   String
+  batchId      String
+
+  coefficient  Float
+  craftPrice   Int
+  runeSlug     String?
+  focusEnabled Boolean  @default(true)
+
+  revenue      Int
+  profit       Int
+
+  createdAt    DateTime @default(now())
+
+  item         Item     @relation(fields: [itemId], references: [id])
+
+  @@index([clerkUserId, itemId, serverName])
+  @@index([clerkUserId, batchId])
 }
 
 /**

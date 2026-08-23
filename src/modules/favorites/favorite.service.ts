@@ -175,3 +175,33 @@ export async function getPersonalCoefficientHistory(
     select: { coefficient: true, dateUpdated: true },
   });
 }
+
+export async function importPersonalCoefficientHistory(
+  clerkUserId: string,
+  itemId: number,
+  serverName: string,
+  points: { coefficient: number; dateUpdated: Date }[],
+) {
+  const favorite = await prisma.favoriteItem.findUnique({
+    where: {
+      clerkUserId_itemId_serverName: { clerkUserId, itemId, serverName },
+    },
+  });
+
+  if (!favorite) {
+    return null;
+  }
+
+  const { count } = await prisma.personalCoefficientHistory.createMany({
+    data: points.map(({ coefficient, dateUpdated }) => ({
+      clerkUserId,
+      itemId,
+      serverName,
+      coefficient,
+      dateUpdated,
+    })),
+    skipDuplicates: true,
+  });
+
+  return count;
+}

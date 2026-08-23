@@ -4,13 +4,14 @@ import {
   getItemPriceHistoryFromDofocus,
 } from "./coefficient.api.js";
 import type { DofocusItemDetail } from "./coefficient.types.js";
-import { getItemsCache } from "../items/item.cache.js";
+import { getItemsCache, type CachedItem } from "../items/item.cache.js";
 import prisma from "../../db/prisma.js";
 import { jitterCoefficient } from "../../helpers/coefficientJitter.js";
+import type { ItemName } from "../items/item.types.js";
 
 export type ItemMarketDataView = {
   id: number;
-  name: string;
+  name: ItemName;
   level: number;
   img: string;
   effects: unknown;
@@ -487,7 +488,7 @@ export async function getItemMarketData(
 
   return {
     id: item.id,
-    name: item.name,
+    name: item.name as unknown as ItemName,
     level: item.level,
     img: item.img,
     effects: item.effects,
@@ -557,13 +558,7 @@ export type InterestingResult = {
     itemId: number;
   };
 
-  item: {
-    id: number;
-    name: string;
-    level: number;
-    img: string;
-    typeId: number | null;
-  };
+  item: CachedItem;
 };
 
 export async function getInterestingItems(

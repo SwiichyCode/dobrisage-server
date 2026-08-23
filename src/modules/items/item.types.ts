@@ -1,11 +1,17 @@
 export type ItemName = {
   fr: string;
   en: string;
+  de: string;
+  es: string;
+  pt: string;
 };
 
 export type ItemDescription = {
   fr: string;
   en: string;
+  de: string;
+  es: string;
+  pt: string;
 };
 
 export type ItemSlug = {

@@ -178,7 +178,7 @@ Si `serverName` est fourni, chaque résultat inclut en plus, pour ce serveur : `
   "data": [
     {
       "id": 789,
-      "name": "Ceinture du Kobeer",
+      "name": { "fr": "Ceinture du Kobeer", "en": "Kobeer Belt", "de": "...", "es": "...", "pt": "..." },
       "level": 1,
       "img": "https://api.dofusdb.fr/img/items/10009.png",
       "typeId": 10,
@@ -209,8 +209,8 @@ Récupère un item par son id.
     "iconId": 10010,
     "typeId": 10,
     "level": 50,
-    "name": "Ceinture Fulgurante",
-    "description": "Cette magnifique ceinture augmente...",
+    "name": { "fr": "Ceinture Fulgurante", "en": "...", "de": "...", "es": "...", "pt": "..." },
+    "description": { "fr": "Cette magnifique ceinture augmente...", "en": "...", "de": "...", "es": "...", "pt": "..." },
     "slug": "ceinture-fulgurante",
     "img": "https://api.dofusdb.fr/img/items/10010.png",
     "effects": [
@@ -396,7 +396,7 @@ Si rien n'est disponible pour l'un ou l'autre, sa valeur est `null` — c'est à
   "success": true,
   "data": {
     "id": 8876,
-    "name": "Voile d'encre",
+    "name": { "fr": "Voile d'encre", "en": "...", "de": "...", "es": "...", "pt": "..." },
     "level": 191,
     "img": "https://api.dofusdb.fr/img/items/17147.png",
     "effects": [
@@ -493,7 +493,7 @@ Liste les items "intéressants à casser" (dismantle) sur un serveur, en croisan
       },
       "item": {
         "id": 8876,
-        "name": "Voile d'encre",
+        "name": { "fr": "Voile d'encre", "en": "...", "de": "...", "es": "...", "pt": "..." },
         "level": 191,
         "img": "...",
         "typeId": 17
@@ -595,8 +595,8 @@ Liste les favoris de l'utilisateur connecté, avec l'item, son coefficient/prix 
         "iconId": 17147,
         "typeId": 17,
         "level": 191,
-        "name": "Voile d'encre",
-        "description": "...",
+        "name": { "fr": "Voile d'encre", "en": "...", "de": "...", "es": "...", "pt": "..." },
+        "description": { "fr": "...", "en": "...", "de": "...", "es": "...", "pt": "..." },
         "slug": "voile-d-encre",
         "img": "https://api.dofusdb.fr/img/items/17147.png",
         "effects": [ "..." ]
@@ -760,6 +760,133 @@ Historique des valeurs successives de `personalCoefficient` pour ce favori, tri�
 **Erreurs**
 - `400` : `itemId` invalide, ou `serverName` manquant/vide.
 - `404` : aucun favori correspondant pour cet utilisateur.
+
+### `POST /favorites/:itemId/history/import?serverName=`
+
+Rapatrie un historique de `personalCoefficient` accumulé côté client (ex: `localStorage`, avant que `GET .../history` existe), en conservant la date d'origine de chaque point plutôt que la date du jour. Usage attendu : un appel unique par (utilisateur, item, serveur), pas un endpoint rappelé en continu. N'affecte jamais `FavoriteItem.personalCoefficient`/`personalCoefficientUpdatedAt` — import d'historique seul.
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `itemId` | number (path) | id de l'item |
+| `serverName` | string (query, requis) | serveur du favori |
+
+**Body**
+```json
+{
+  "points": [
+    { "coefficient": 3800, "dateUpdated": "2026-07-01T00:00:00.000Z" },
+    { "coefficient": 4000, "dateUpdated": "2026-07-20T10:00:00.000Z" }
+  ]
+}
+```
+
+**Réponse `200`**
+```json
+{ "success": true, "imported": 2 }
+```
+
+`imported` = nombre de points effectivement insérés (peut être inférieur à `points.length` si certains existaient déjà — idempotent, un conflit sur `(clerkUserId, itemId, serverName, dateUpdated)` est ignoré, pas une erreur).
+
+**Erreurs**
+- `400` : `itemId` invalide, `serverName` manquant/vide, ou `points` absent/vide/mal formé (`coefficient` non numérique, `dateUpdated` non parsable).
+- `404` : aucun favori correspondant pour cet utilisateur.
+
+---
+
+## Journal de brisage
+
+Un **`BrisageEntry`** est un événement réel de brisage : un exemplaire cassé au concasseur, avec le coefficient obtenu et le kamas investi/obtenu **figés au moment de la saisie** (calculés côté front, jamais recalculés par le backend avec des prix de runes différents plus tard). Distinct de `PersonalCoefficientHistory` (qui journalise les éditions de `FavoriteItem.personalCoefficient`, pas des brisages réels) : un utilisateur peut corriger son coefficient perso sans rien casser, ou casser plusieurs exemplaires sans jamais toucher son favori.
+
+Comme pour `/favorites`/`/trades`, ces endpoints nécessitent le header `Authorization: Bearer <token>` (Clerk) — `401` si absent/invalide : `{ "success": false, "error": "Authentication required" }`.
+
+### `POST /favorites/:itemId/brisage-entries?serverName=`
+
+Enregistre une session de brisage : une ou plusieurs lignes (une par exemplaire cassé), regroupées sous un `batchId` généré côté front (identifiant opaque, aucune contrainte de format au-delà d'une chaîne non vide).
+
+**Params**
+| Param | Type | Description |
+|---|---|---|
+| `itemId` | number (path) | id de l'item |
+| `serverName` | string (query, requis) | serveur du favori |
+
+**Body**
+```json
+{
+  "batchId": "b_2026-08-23T14:32:00.000Z-x7f2",
+  "entries": [
+    { "coefficient": 3800, "craftPrice": 45000, "runeSlug": "puissance", "focusEnabled": true, "revenue": 62000, "profit": 17000 },
+    { "coefficient": 4100, "craftPrice": 45000, "runeSlug": "puissance", "focusEnabled": true, "revenue": 68000, "profit": 23000 }
+  ]
+}
+```
+
+`runeSlug` : `null` quand `focusEnabled` est `false` (brisage sans focus, toutes runes obtenues). Toutes les lignes d'un même appel prennent le même `createdAt` (celui de la requête), pas un `createdAt` par ligne.
+
+**Réponse `201`**
+```json
+{
+  "success": true,
+  "created": 2,
+  "data": [
+    { "id": 101, "itemId": 3421, "serverName": "Tal Kasha", "batchId": "b_2026-08-23T14:32:00.000Z-x7f2", "coefficient": 3800, "craftPrice": 45000, "runeSlug": "puissance", "focusEnabled": true, "revenue": 62000, "profit": 17000, "createdAt": "2026-08-23T14:32:00.000Z" },
+    { "id": 102, "itemId": 3421, "serverName": "Tal Kasha", "batchId": "b_2026-08-23T14:32:00.000Z-x7f2", "coefficient": 4100, "craftPrice": 45000, "runeSlug": "puissance", "focusEnabled": true, "revenue": 68000, "profit": 23000, "createdAt": "2026-08-23T14:32:00.000Z" }
+  ]
+}
+```
+
+**Erreurs**
+- `400` : `serverName` manquant/vide, `batchId` manquant/vide, ou `entries` absent/vide/mal formé (`coefficient`/`craftPrice`/`revenue`/`profit` non numériques).
+- `404` : aucun favori pour cet `itemId`/`serverName` chez cet utilisateur (même règle que `PATCH`/`DELETE /favorites/:itemId`).
+
+### `GET /brisage-entries`
+
+Pas nested sous `/favorites/:itemId` : renvoie **tout** l'historique de brisage de l'utilisateur connecté, tous items/serveurs confondus — sert à alimenter les cards "Kamas investis / Kamas de runes obtenus / Profit total" de `/profile`. Trié par `createdAt` décroissant (le plus récent en premier). Pas de pagination pour cette première version.
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "count": 42,
+  "data": [
+    { "id": 102, "itemId": 3421, "serverName": "Tal Kasha", "batchId": "b_2026-08-23T14:32:00.000Z-x7f2", "coefficient": 4100, "craftPrice": 45000, "runeSlug": "puissance", "focusEnabled": true, "revenue": 68000, "profit": 23000, "createdAt": "2026-08-23T14:32:00.000Z" }
+  ]
+}
+```
+
+### `DELETE /brisage-entries/:id`
+
+Supprime une ligne isolée (correction d'une erreur de saisie) — pas de suppression par lot pour cette itération.
+
+**Réponse `200`**
+```json
+{ "success": true }
+```
+
+**Erreurs**
+- `400` : `id` invalide.
+- `404` : `id` inexistant ou n'appartenant pas à l'utilisateur.
+
+### `PATCH /brisage-entries/:id`
+
+Corrige une ligne mal saisie sans avoir à la supprimer/ressaisir. Seuls `coefficient`, `craftPrice`, `revenue`, `profit` sont modifiables — tout autre champ du body (`runeSlug`, `focusEnabled`, `batchId`, `serverName`, `itemId`, `createdAt`) est ignoré silencieusement. Aucun recalcul serveur : `profit` n'est jamais dérivé de `revenue`/`craftPrice`, le backend stocke ce que le front envoie.
+
+**Body** — au moins un des quatre champs requis, chacun optionnel individuellement
+```json
+{ "coefficient": 4000, "craftPrice": 45000, "revenue": 68000, "profit": 23000 }
+```
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "data": { "id": 102, "itemId": 3421, "serverName": "Tal Kasha", "batchId": "b_2026-08-23T14:32:00.000Z-x7f2", "coefficient": 4000, "craftPrice": 45000, "runeSlug": "puissance", "focusEnabled": true, "revenue": 68000, "profit": 23000, "createdAt": "2026-08-23T14:32:00.000Z" }
+}
+```
+
+**Erreurs**
+- `400` : `id` invalide, aucun des quatre champs présent, ou un champ présent mais non numérique.
+- `404` : `id` inexistant ou n'appartenant pas à l'utilisateur.
 
 ---
 

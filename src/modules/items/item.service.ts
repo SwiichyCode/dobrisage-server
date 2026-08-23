@@ -30,8 +30,8 @@ export async function importItems() {
       iconId: item.iconId,
       typeId: item.typeId,
       level: item.level,
-      name: item.name.fr,
-      description: item.description.fr,
+      name: item.name,
+      description: item.description,
       slug: item.slug.fr,
       img: item.img,
       effects: item.effects ?? [],
@@ -71,8 +71,8 @@ export async function syncItems() {
       iconId: item.iconId,
       typeId: item.typeId ?? null,
       level: item.level,
-      name: item.name.fr,
-      description: item.description.fr,
+      name: JSON.stringify(item.name),
+      description: JSON.stringify(item.description),
       slug: item.slug.fr,
       img: item.img,
       effects: JSON.stringify(item.effects ?? []),
@@ -82,7 +82,7 @@ export async function syncItems() {
       .map((_, index) => {
         const base = index * 9;
 
-        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}::jsonb)`;
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}::jsonb, $${base + 6}::jsonb, $${base + 7}, $${base + 8}, $${base + 9}::jsonb)`;
       })
       .join(",");
 

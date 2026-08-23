@@ -4,6 +4,7 @@ import { Prisma } from "../../generated/prisma/client.js";
 import {
   addFavorite,
   getPersonalCoefficientHistory,
+  importPersonalCoefficientHistory,
   listFavorites,
   removeFavorite,
   updateFavorite,
@@ -258,6 +259,82 @@ export async function getFavoriteHistoryController(req: Request, res: Response) 
     return res.status(500).json({
       success: false,
       error: "Failed to fetch coefficient history",
+    });
+  }
+}
+
+export async function importFavoriteHistoryController(req: Request, res: Response) {
+  const { userId } = getAuth(req);
+  const itemId = Number(req.params.itemId);
+  const { serverName } = req.query;
+  const { points } = req.body;
+
+  if (!Number.isInteger(itemId)) {
+    return res.status(400).json({
+      success: false,
+      error: "Invalid itemId",
+    });
+  }
+
+  if (typeof serverName !== "string" || serverName.trim().length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: "Missing or invalid serverName",
+    });
+  }
+
+  if (!Array.isArray(points) || points.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: "Missing or invalid points",
+    });
+  }
+
+  const parsedPoints: { coefficient: number; dateUpdated: Date }[] = [];
+
+  for (const point of points) {
+    const coefficient = point?.coefficient;
+    const dateUpdated = new Date(point?.dateUpdated);
+
+    if (typeof coefficient !== "number" || !Number.isFinite(coefficient)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid point coefficient",
+      });
+    }
+
+    if (Number.isNaN(dateUpdated.getTime())) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid point dateUpdated",
+      });
+    }
+
+    parsedPoints.push({ coefficient, dateUpdated });
+  }
+
+  try {
+    const imported = await importPersonalCoefficientHistory(
+      userId!,
+      itemId,
+      serverName,
+      parsedPoints,
+    );
+
+    if (imported === null) {
+      return res.status(404).json({
+        success: false,
+        error: "Favorite not found",
+      });
+    }
+
+    return res.json({ success: true, imported });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to import coefficient history",
     });
   }
 }

@@ -1,8 +1,9 @@
 import prisma from "../../db/prisma.js";
+import type { ItemName } from "./item.types.js";
 
 export type CachedItem = {
   id: number;
-  name: string;
+  name: ItemName;
   level: number;
   img: string;
   typeId: number | null;
@@ -32,7 +33,7 @@ async function loadItems(): Promise<Map<number, CachedItem>> {
   const cache = new Map<number, CachedItem>();
 
   for (const item of items) {
-    cache.set(item.id, item);
+    cache.set(item.id, { ...item, name: item.name as unknown as ItemName });
   }
 
   console.timeEnd("item-cache-load");
