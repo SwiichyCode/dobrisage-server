@@ -235,6 +235,29 @@ model ScanSeries {
   @@index([clerkUserId])
 }
 
+enum FeedbackType {
+  BUG
+  SUGGESTION
+}
+
+/**
+ * Remontée libre (bug/suggestion) depuis /chat-analyzer, consultable dans
+ * /admin. Volontairement indépendante d'un compte Clerk (pas de clerkUserId) :
+ * pseudo est un simple texte optionnel, pas une identité — contrairement à
+ * Trade/FavoriteItem/ScanSeries qui exigent une session. pseudo nul = envoyé
+ * en anonyme. Voir docs/BACKEND_CHAT_ANALYZER_FEEDBACK.md.
+ */
+model Feedback {
+  id        Int          @id @default(autoincrement())
+  type      FeedbackType
+  message   String
+  pseudo    String?
+  locale    String
+  createdAt DateTime     @default(now())
+
+  @@index([createdAt])
+}
+
 /**
  * Une itération d'un ScanSeries : un scan /chat-analyzer enregistré à un
  * instant donné. `items` est le tableau ItemSummary[] déjà calculé côté

@@ -508,6 +508,64 @@ Liste les items "intéressants à casser" (dismantle) sur un serveur, en croisan
 
 ---
 
+## Feedback
+
+Une **feedback** est une remontée libre (bug ou suggestion) envoyée depuis `/chat-analyzer`, consultable dans `/admin/feedback`. Contrairement aux favoris/trades, ces endpoints ne nécessitent **aucune authentification** — `pseudo` est un simple texte optionnel, pas lié à un compte Clerk (`null`/omis = envoyé en anonyme).
+
+⚠️ **Point d'attention** : `GET /feedback` n'est pas protégé côté backend (comme le reste de l'API), mais expose des messages potentiellement sensibles à qui devine l'URL — la seule protection actuelle est que `/admin/feedback` n'est pas linké côté front et est gaté par le rôle Clerk.
+
+### `POST /feedback`
+
+**Body**
+```json
+{
+  "type": "bug",
+  "message": "Le drag and drop des screenshots ne fonctionne pas sur Firefox.",
+  "pseudo": "Iop-du-13",
+  "locale": "fr"
+}
+```
+- `type` : `"bug"` ou `"suggestion"`, requis.
+- `message` : string non vide, requis, 2000 caractères max.
+- `locale` : `"fr"`, `"en"` ou `"es"`, requis.
+- `pseudo` : string, optionnel — omis ou `null` si envoyé en anonyme.
+
+**Réponse `201`**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 12,
+    "type": "bug",
+    "message": "Le drag and drop des screenshots ne fonctionne pas sur Firefox.",
+    "pseudo": "Iop-du-13",
+    "locale": "fr",
+    "createdAt": "2026-08-23T10:00:00.000Z"
+  }
+}
+```
+
+**Erreurs**
+- `400` : `type` absent ou hors `["bug", "suggestion"]`, `message` absent/vide/trop long (> 2000 caractères), `locale` absent ou hors `["fr", "en", "es"]`, ou `pseudo` d'un type autre que string.
+
+### `GET /feedback`
+
+Liste tous les messages, du plus récent au plus ancien. Pas de pagination ni de filtre `type`/`locale` pour l'instant (volume attendu faible).
+
+**Réponse `200`**
+```json
+{
+  "success": true,
+  "count": 2,
+  "data": [
+    { "id": 12, "type": "bug", "message": "...", "pseudo": "Iop-du-13", "locale": "fr", "createdAt": "2026-08-23T10:00:00.000Z" },
+    { "id": 11, "type": "suggestion", "message": "...", "pseudo": null, "locale": "en", "createdAt": "2026-08-22T18:30:00.000Z" }
+  ]
+}
+```
+
+---
+
 ## Favoris
 
 Un **favori** est un item marqué comme intéressant par un utilisateur connecté, pour un serveur donné (le coefficient/prix de craft dépendant du serveur). Contrairement au reste de l'API, ces endpoints nécessitent une authentification : le front doit envoyer le token de session Clerk dans le header `Authorization: Bearer <token>`. Aucun profil utilisateur n'est stocké en base côté backend — Clerk reste la seule source de vérité pour l'identité, le backend ne retient que l'id opaque (`clerkUserId`) fourni par le token.
