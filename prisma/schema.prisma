@@ -279,22 +279,48 @@ enum FeedbackType {
   SUGGESTION
 }
 
-/**
- * Remontée libre (bug/suggestion) depuis /chat-analyzer, consultable dans
- * /admin. Volontairement indépendante d'un compte Clerk (pas de clerkUserId) :
- * pseudo est un simple texte optionnel, pas une identité — contrairement à
- * Trade/FavoriteItem/ScanSeries qui exigent une session. pseudo nul = envoyé
- * en anonyme. Voir docs/BACKEND_CHAT_ANALYZER_FEEDBACK.md.
- */
-model Feedback {
-  id        Int          @id @default(autoincrement())
-  type      FeedbackType
-  message   String
-  pseudo    String?
-  locale    String
-  createdAt DateTime     @default(now())
+enum SupportTicketStatus {
+  OPEN
+  CLOSED
+}
 
-  @@index([createdAt])
+/**
+ * Un ticket de support (bug/suggestion) ouvert par un utilisateur connecté
+ * depuis /support, avec échange de messages avec un admin. Remplace
+ * l'ancienne remontée anonyme Feedback — voir docs/BACKEND_SUPPORT_TICKETS.md.
+ * Pas de nom stocké : clerkUserId suffit, le front résout l'affichage via
+ * Clerk. Toujours créé avec son premier SupportMessage (pas de ticket vide).
+ */
+model SupportTicket {
+  id          Int                 @id @default(autoincrement())
+  clerkUserId String
+  type        FeedbackType
+  subject     String
+  status      SupportTicketStatus @default(OPEN)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  messages    SupportMessage[]
+
+  @@index([clerkUserId])
+}
+
+/**
+ * Un message dans le fil d'un SupportTicket, utilisateur ou admin
+ * (isAdmin). Poster un message bump SupportTicket.updatedAt mais ne change
+ * jamais son status — seul PATCH /support/tickets/admin/:id le fait.
+ */
+model SupportMessage {
+  id          Int      @id @default(autoincrement())
+  ticketId    Int
+  clerkUserId String
+  isAdmin     Boolean  @default(false)
+  message     String
+  createdAt   DateTime @default(now())
+
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
 }
 
 /**

@@ -12,7 +12,7 @@ import brisageEntryRoutes from "./modules/brisage-entries/brisage-entry.routes.j
 import tradeRoutes from "./modules/trades/trade.routes.js";
 import userRunePriceRoutes from "./modules/user-rune-prices/user-rune-price.routes.js";
 import scanSeriesRoutes from "./modules/scan-series/scan-series.routes.js";
-import feedbackRoutes from "./modules/feedback/feedback.routes.js";
+import supportRoutes from "./modules/support/support.routes.js";
 import prisma from "./db/prisma.js";
 import { startRuneImportScheduler } from "./modules/runes/rune.scheduler.js";
 import {
@@ -64,7 +64,7 @@ app.use("/brisage-entries", clerkMiddleware(), brisageEntryRoutes);
 app.use("/trades", clerkMiddleware(), tradeRoutes);
 app.use("/rune-prices", clerkMiddleware(), userRunePriceRoutes);
 app.use("/scan-series", clerkMiddleware(), scanSeriesRoutes);
-app.use("/feedback", feedbackRoutes);
+app.use("/support/tickets", clerkMiddleware(), supportRoutes);
 
 app.use((_req: Request, res: Response) => {
   res.status(404).json({

@@ -508,61 +508,116 @@ Liste les items "intéressants à casser" (dismantle) sur un serveur, en croisan
 
 ---
 
-## Feedback
+## Tickets de support
 
-Une **feedback** est une remontée libre (bug ou suggestion) envoyée depuis `/chat-analyzer`, consultable dans `/admin/feedback`. Contrairement aux favoris/trades, ces endpoints ne nécessitent **aucune authentification** — `pseudo` est un simple texte optionnel, pas lié à un compte Clerk (`null`/omis = envoyé en anonyme).
+Un **ticket de support** (bug ou suggestion) est ouvert par un utilisateur connecté depuis `/support` et échange des messages avec un admin depuis `/admin/support`. Remplace l'ancien `Feedback` anonyme (`POST`/`GET /feedback`, supprimés) — voir `docs/BACKEND_SUPPORT_TICKETS.md`. Pas de nom/pseudo stocké : `clerkUserId` suffit, le front résout l'affichage (nom Clerk) lui-même côté `/admin`.
 
-⚠️ **Point d'attention** : `GET /feedback` n'est pas protégé côté backend (comme le reste de l'API), mais expose des messages potentiellement sensibles à qui devine l'URL — la seule protection actuelle est que `/admin/feedback` n'est pas linké côté front et est gaté par le rôle Clerk.
+Les endpoints **utilisateur** (`POST /support/tickets`, `GET /support/tickets`, `GET /support/tickets/:id`, `POST /support/tickets/:id/messages`) nécessitent le header `Authorization: Bearer <token>` (Clerk), même pattern que `/favorites`/`/trades` — `401` si absent/invalide : `{ "success": false, "error": "Authentication required" }`.
 
-### `POST /feedback`
+⚠️ **Point d'attention** : les endpoints **admin** (`/support/tickets/admin/...`) n'ont pas d'authentification backend dédiée — comme pour l'ancien `/feedback`, la seule protection est que `/admin/support` est gaté côté Next.js par `publicMetadata.role === "admin"`. Cette feature expose des échanges utilisateur (pas juste des signalements anonymes), donc le risque est plus élevé qu'avant — à durcir (ex. header `X-Admin-Secret`) si besoin.
+
+### `POST /support/tickets`
+
+Crée un ticket avec son premier message.
 
 **Body**
 ```json
-{
-  "type": "bug",
-  "message": "Le drag and drop des screenshots ne fonctionne pas sur Firefox.",
-  "pseudo": "Iop-du-13",
-  "locale": "fr"
-}
+{ "type": "bug", "subject": "Le drag and drop ne fonctionne pas", "message": "Sur Firefox, déposer un screenshot ne déclenche rien." }
 ```
 - `type` : `"bug"` ou `"suggestion"`, requis.
+- `subject` : string non vide, requis, 200 caractères max.
 - `message` : string non vide, requis, 2000 caractères max.
-- `locale` : `"fr"`, `"en"` ou `"es"`, requis.
-- `pseudo` : string, optionnel — omis ou `null` si envoyé en anonyme.
 
 **Réponse `201`**
 ```json
 {
   "success": true,
   "data": {
-    "id": 12,
-    "type": "bug",
-    "message": "Le drag and drop des screenshots ne fonctionne pas sur Firefox.",
-    "pseudo": "Iop-du-13",
-    "locale": "fr",
-    "createdAt": "2026-08-23T10:00:00.000Z"
+    "id": 3, "clerkUserId": "user_abc", "type": "bug", "subject": "Le drag and drop ne fonctionne pas", "status": "open",
+    "createdAt": "2026-08-25T10:00:00.000Z", "updatedAt": "2026-08-25T10:00:00.000Z",
+    "messages": [{ "id": 7, "ticketId": 3, "clerkUserId": "user_abc", "isAdmin": false, "message": "Sur Firefox, déposer un screenshot ne déclenche rien.", "createdAt": "2026-08-25T10:00:00.000Z" }]
   }
 }
 ```
 
-**Erreurs**
-- `400` : `type` absent ou hors `["bug", "suggestion"]`, `message` absent/vide/trop long (> 2000 caractères), `locale` absent ou hors `["fr", "en", "es"]`, ou `pseudo` d'un type autre que string.
+**Erreurs `400`** : `type` absent/hors `["bug","suggestion"]`, `subject` vide/trop long, `message` vide/trop long.
 
-### `GET /feedback`
+### `GET /support/tickets`
 
-Liste tous les messages, du plus récent au plus ancien. Pas de pagination ni de filtre `type`/`locale` pour l'instant (volume attendu faible).
+Tickets de l'utilisateur connecté, triés par `updatedAt` décroissant (une réponse fait remonter le ticket). Pas de messages imbriqués — juste le résumé.
 
 **Réponse `200`**
 ```json
 {
   "success": true,
-  "count": 2,
+  "count": 1,
   "data": [
-    { "id": 12, "type": "bug", "message": "...", "pseudo": "Iop-du-13", "locale": "fr", "createdAt": "2026-08-23T10:00:00.000Z" },
-    { "id": 11, "type": "suggestion", "message": "...", "pseudo": null, "locale": "en", "createdAt": "2026-08-22T18:30:00.000Z" }
+    { "id": 3, "clerkUserId": "user_abc", "type": "bug", "subject": "...", "status": "open", "createdAt": "2026-08-25T10:00:00.000Z", "updatedAt": "2026-08-25T10:00:00.000Z", "_count": { "messages": 1 } }
   ]
 }
 ```
+
+### `GET /support/tickets/:id`
+
+Détail d'un ticket avec ses `messages` (ordre chronologique croissant).
+
+**Erreurs** : `404` si le ticket n'existe pas ou n'appartient pas à l'utilisateur (jamais `403` — ne révèle pas l'existence d'un ticket d'un autre utilisateur).
+
+### `POST /support/tickets/:id/messages`
+
+Répond sur un ticket possédé par l'utilisateur connecté. `clerkUserId`/`isAdmin: false` déduits du token. Bump `SupportTicket.updatedAt`, ne change pas `status` (un ticket `closed` reste `closed`, volontairement pas d'auto-réouverture).
+
+**Body**
+```json
+{ "message": "..." }
+```
+
+**Réponse `201`** : le `SupportMessage` créé.
+
+**Erreurs** : `400` si `message` vide/trop long, `404` même règle que `GET /support/tickets/:id`.
+
+### `GET /support/tickets/admin`
+
+Tous les tickets, tous utilisateurs, triés par `updatedAt` décroissant. Mêmes champs résumé que `GET /support/tickets`.
+
+### `GET /support/tickets/admin/:id`
+
+Comme `GET /support/tickets/:id` mais sans filtre de propriétaire — `404` si le ticket n'existe pas.
+
+### `POST /support/tickets/admin/:id/messages`
+
+Répond en tant qu'admin. `clerkUserId` de l'admin transmis explicitement dans le body (pas de token à décoder côté admin, cf. point d'attention ci-dessus). `isAdmin: true` forcé côté backend. Bump `SupportTicket.updatedAt`.
+
+**Body**
+```json
+{ "message": "...", "clerkUserId": "user_xyz_admin" }
+```
+
+**Réponse `201`** : le `SupportMessage` créé.
+
+**Erreurs** : `400` si `message`/`clerkUserId` invalide, `404` si le ticket n'existe pas.
+
+### `PATCH /support/tickets/admin/:id`
+
+Clôt ou rouvre un ticket.
+
+**Body**
+```json
+{ "status": "closed" }
+```
+
+**Erreurs** : `400` si `status` hors `["open", "closed"]`, `404` si le ticket n'existe pas.
+
+### `DELETE /support/tickets/admin/:id`
+
+Supprime un ticket (modération) et tous ses messages (cascade). Suppression définitive, pas de soft-delete. Réservé à l'admin — pas d'équivalent côté utilisateur.
+
+**Réponse `200`**
+```json
+{ "success": true }
+```
+
+**Erreurs** : `400` si `id` invalide, `404` si le ticket n'existe pas.
 
 ---
 
